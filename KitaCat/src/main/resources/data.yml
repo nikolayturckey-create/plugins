@@ -1,0 +1,12 @@
+kita:
+  uuid: ""
+  spawned: false
+  sitting: false
+  following: true
+  last-location:
+    world: "world"
+    x: 0
+    y: 80
+    z: 0
+    yaw: 0
+    pitch: 0
