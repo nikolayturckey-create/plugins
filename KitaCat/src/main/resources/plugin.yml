@@ -1,0 +1,13 @@
+name: KitaCat
+version: 1.0
+main: ru.projecterror.kitacat.KitaCatPlugin
+api-version: '1.20'
+commands:
+  kita:
+    description: Управление Китой
+    usage: /kita <spawn|remove|tp|sit|follow|reload>
+permissions:
+  kita.admin:
+    default: op
+  kita.owner:
+    default: false
