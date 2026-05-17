@@ -1,0 +1,64 @@
+kita:
+  name: "Кита"
+  owner: "haamster185"
+  world: "world"
+
+follow:
+  enabled: true
+  min-distance: 3
+  max-distance: 18
+  teleport-distance: 35
+  speed: 1.2
+
+wander:
+  enabled: true
+  radius: 6
+
+protection:
+  invulnerable: true
+  prevent-fire: true
+  prevent-drowning: true
+  prevent-explosion: true
+  prevent-void-death: true
+
+sounds:
+  meow-enabled: true
+  meow-chance-percent: 3
+  interval-seconds: 20
+
+moments:
+  enabled: true
+  radius: 10
+  interval-seconds: 180
+
+  owner-online:
+    - text: "тихо мурчит рядом с хозяином. Для неё этого уже достаточно."
+      emotion: "TRUST"
+    - text: "смотрит на хозяина так, будто среди всего мира выбрала только его."
+      emotion: "HAPPY"
+    - text: "идёт за хозяином не потому, что должна. А потому что он — её дом."
+      emotion: "TRUST"
+    - text: "тихо ложится рядом с хозяином. Для неё счастье — это когда он просто рядом."
+      emotion: "HAPPY"
+
+  owner-offline:
+    - text: "садится на месте и ждёт. Не потому что знает, когда ты придёшь. А потому что верит."
+      emotion: "WAITING"
+    - text: "свернулась клубочком там, где недавно стоял хозяин."
+      emotion: "LONELY"
+    - text: "тихо мяукает, словно спрашивает: «Ты ведь вернёшься?»"
+      emotion: "SAD"
+    - text: "оглядывается туда, откуда обычно приходит хозяин."
+      emotion: "WAITING"
+
+  random:
+    - text: "тихо мяукает, будто спрашивает: «Ты ещё здесь?»"
+      emotion: "SAD"
+    - text: "ложится рядом и тихо мурчит. Кажется, она просто рада, что кто-то рядом."
+      emotion: "TRUST"
+    - text: "медленно моргает. Это её маленький способ сказать: «Я тебе верю»."
+      emotion: "TRUST"
+    - text: "прижимается ближе. Маленькое сердце тоже умеет скучать."
+      emotion: "LONELY"
+    - text: "садится рядом и смотрит так, будто ждала тебя весь день."
+      emotion: "WAITING"
