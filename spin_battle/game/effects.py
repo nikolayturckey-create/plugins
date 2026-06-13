@@ -216,18 +216,18 @@ class Effects:
             surf.blit(s, (int(p.x + ox - r), int(p.y + oy - r)))
 
     def draw_waves(self, surf, offset=(0, 0)):
+        # Рисуем кольцо прямо на поверхности (без больших SRCALPHA-аллокаций):
+        # затухание имитируем яркостью к фону (на тёмной арене читается как fade).
         ox, oy = offset
         for w in self.waves:
             t = max(0.0, w.life / w.max_life)
             rad = int(w.radius)
             if rad < 1:
                 continue
-            alpha = int(200 * t)
-            d = rad * 2 + 4
-            s = pygame.Surface((d, d), pygame.SRCALPHA)
-            pygame.draw.circle(s, (*w.color, alpha), (d // 2, d // 2), rad,
-                               max(1, int(w.width * t)))
-            surf.blit(s, (int(w.x + ox - d // 2), int(w.y + oy - d // 2)))
+            col = tuple(int(c * (0.2 + 0.8 * t)) for c in w.color)
+            width = max(1, int(w.width * t))
+            pygame.draw.circle(surf, col, (int(w.x + ox), int(w.y + oy)),
+                               rad, width)
 
     def draw_front(self, surf, offset=(0, 0)):
         """Искры и осколки — поверх волчков."""

@@ -203,16 +203,16 @@ class Top:
 
     # --- отрисовка --------------------------------------------------------
     def _draw_trail(self, surf):
+        # Дешёвый шлейф: затемнённые круги прямо на поверхности (без SRCALPHA),
+        # на тёмной арене яркость к фону читается как затухание.
         n = len(self.trail)
         if n < 2:
             return
         for i, (tx, ty) in enumerate(self.trail):
             frac = (i + 1) / n
             rr = max(1, int(self.radius * 0.5 * frac))
-            alpha = int(70 * frac)
-            s = pygame.Surface((rr * 2, rr * 2), pygame.SRCALPHA)
-            pygame.draw.circle(s, (*self.color, alpha), (rr, rr), rr)
-            surf.blit(s, (int(tx - rr), int(ty - rr)))
+            col = tuple(int(c * frac * 0.5) for c in self.color)
+            pygame.draw.circle(surf, col, (int(tx), int(ty)), rr)
 
     def _body_points(self, x, y, r):
         pts = []

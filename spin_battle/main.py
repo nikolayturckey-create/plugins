@@ -65,6 +65,7 @@ class Game:
 
         self.arena = Arena()
         self.effects = Effects()
+        self._ko_font = pygame.font.SysFont("arial", 96, bold=True)
         # Тайминг «сочности».
         self.time_scale = 1.0   # < 1 во время slow-mo (K.O.)
         self.freeze = 0.0       # hit-stop: кадр «застывает»
@@ -337,11 +338,19 @@ class Game:
     # --- масштабирование на реальный экран --------------------------------
     def present(self):
         dw, dh = self.display.get_size()
+        # Если окно ровно нашего размера — масштабировать не нужно.
+        if (dw, dh) == (C.SCREEN_W, C.SCREEN_H):
+            self._scale = 1.0
+            self._offset = (0, 0)
+            self.display.blit(self.screen, (0, 0))
+            pygame.display.flip()
+            return
         scale = min(dw / C.SCREEN_W, dh / C.SCREEN_H)
         sw, sh = int(C.SCREEN_W * scale), int(C.SCREEN_H * scale)
         self._scale = scale
         self._offset = ((dw - sw) // 2, (dh - sh) // 2)
-        scaled = pygame.transform.smoothscale(self.screen, (sw, sh))
+        # transform.scale (nearest) — кратно быстрее smoothscale, важно для телефона.
+        scaled = pygame.transform.scale(self.screen, (sw, sh))
         self.display.fill(C.BLACK)
         self.display.blit(scaled, self._offset)
         pygame.display.flip()
@@ -411,14 +420,15 @@ class Game:
         self.present()
 
     def _draw_ko_banner(self):
-        # пульсирующий баннер K.O.
-        pulse = 1.0 + 0.08 * math.sin(pygame.time.get_ticks() / 80.0)
-        size = int(96 * pulse)
-        font = pygame.font.SysFont("arial", size, bold=True)
+        # пульсирующий баннер K.O. (шрифт кэширован, пульс — лёгким масштабом)
+        pulse = 1.0 + 0.07 * math.sin(pygame.time.get_ticks() / 90.0)
+        cx, cy = C.SCREEN_W // 2, C.SCREEN_H // 2 - 40
         for col, off in (((0, 0, 0), 4), (C.RED, 0)):
-            img = font.render("K.O.", True, col)
-            rect = img.get_rect(center=(C.SCREEN_W // 2 + off,
-                                        C.SCREEN_H // 2 - 40 + off))
+            img = self._ko_font.render("K.O.", True, col)
+            if pulse != 1.0:
+                w, h = img.get_size()
+                img = pygame.transform.scale(img, (int(w * pulse), int(h * pulse)))
+            rect = img.get_rect(center=(cx + off, cy + off))
             self.screen.blit(img, rect)
         ui.draw_text(self.screen, self.fonts["mid"],
                      f"{self.round_winner} побеждает в раунде!", C.WHITE,
