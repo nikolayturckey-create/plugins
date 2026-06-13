@@ -45,11 +45,20 @@ def random_top(color, name) -> Top:
 class Game:
     def __init__(self):
         pygame.init()
-        self.screen = pygame.display.set_mode((C.SCREEN_W, C.SCREEN_H))
+        # На Android открываем полноэкранно; на ПК — окно нужного размера.
+        is_android = "ANDROID_ARGUMENT" in os.environ
+        if is_android:
+            self.display = pygame.display.set_mode((0, 0))
+        else:
+            self.display = pygame.display.set_mode((C.SCREEN_W, C.SCREEN_H))
         pygame.display.set_caption("Spin Battle — битва волчков")
         self.clock = pygame.time.Clock()
         self.fonts = ui.make_fonts()
+        # Всё рисуем на внутренней поверхности фикс. размера, затем масштабируем.
+        self.screen = pygame.Surface((C.SCREEN_W, C.SCREEN_H))
         self.world = pygame.Surface((C.SCREEN_W, C.SCREEN_H))
+        self._scale = 1.0
+        self._offset = (0, 0)
 
         self.arena = Arena()
         self.effects = Effects()
@@ -68,6 +77,7 @@ class Game:
         self.round_no = 0
         self.countdown = 0.0
         self.round_winner = None
+        self.boost_buttons = {"p1": None, "p2": None}
 
     def start_builders(self, mode):
         self.mode = mode
@@ -102,6 +112,10 @@ class Game:
     def handle_event(self, e):
         if e.type == pygame.QUIT:
             return False
+        # Тач/мышь: на Android SDL2 синтезирует MOUSEBUTTONDOWN из касаний.
+        if e.type == pygame.MOUSEBUTTONDOWN:
+            self.handle_pointer(self.map_pointer(e.pos))
+            return True
         if e.type != pygame.KEYDOWN:
             return True
         if e.key == pygame.K_ESCAPE:
@@ -134,6 +148,32 @@ class Game:
             if e.key == pygame.K_RETURN:
                 self.start_builders(self.mode)
         return True
+
+    def handle_pointer(self, pos):
+        """Обработка тапа/клика по координате (телефон или мышь)."""
+        if self.state == MODE:
+            choice = self.mode_menu.handle_pointer(pos)
+            if choice:
+                self.start_builders(choice)
+        elif self.state == BUILD:
+            b = self.builders[self.build_index]
+            b.handle_pointer(pos)
+            if b.done:
+                if self.build_index < len(self.builders) - 1:
+                    self.build_index += 1
+                else:
+                    self.begin_match()
+        elif self.state == BATTLE:
+            if self.boost_buttons.get("p1") and \
+                    self.boost_buttons["p1"].collidepoint(pos):
+                self.top1.boost(self.top2)
+            elif self.boost_buttons.get("p2") and \
+                    self.boost_buttons["p2"].collidepoint(pos):
+                self.top2.boost(self.top1)
+        elif self.state == ROUND_OVER:
+            self.start_round()
+        elif self.state == MATCH_OVER:
+            self.start_builders(self.mode)
 
     # --- ИИ ---------------------------------------------------------------
     def ai_think(self):
@@ -199,20 +239,39 @@ class Game:
         else:
             self.effects.update(dt)
 
+    # --- масштабирование на реальный экран --------------------------------
+    def present(self):
+        """Масштабировать внутренний кадр на окно (с сохранением пропорций)."""
+        dw, dh = self.display.get_size()
+        scale = min(dw / C.SCREEN_W, dh / C.SCREEN_H)
+        sw, sh = int(C.SCREEN_W * scale), int(C.SCREEN_H * scale)
+        self._scale = scale
+        self._offset = ((dw - sw) // 2, (dh - sh) // 2)
+        scaled = pygame.transform.smoothscale(self.screen, (sw, sh))
+        self.display.fill(C.BLACK)
+        self.display.blit(scaled, self._offset)
+        pygame.display.flip()
+
+    def map_pointer(self, pos):
+        """Перевести координаты окна во внутренние координаты кадра."""
+        ox, oy = self._offset
+        s = self._scale or 1.0
+        return ((pos[0] - ox) / s, (pos[1] - oy) / s)
+
     # --- отрисовка --------------------------------------------------------
     def draw(self):
         if self.state == MODE:
             self.mode_menu.draw(self.screen, self.fonts)
-            pygame.display.flip()
+            self.present()
             return
         if self.state == BUILD:
             self.builders[self.build_index].draw(self.screen, self.fonts)
-            pygame.display.flip()
+            self.present()
             return
         if self.state == MATCH_OVER:
             ui.draw_match_over(self.screen, self.fonts,
                                self.match_winner, self.score)
-            pygame.display.flip()
+            self.present()
             return
 
         # Бой / отсчёт / конец раунда рисуем на world, чтобы трясти камеру.
@@ -230,6 +289,10 @@ class Game:
         ui.draw_hud(self.screen, self.fonts, self.top1, self.top2,
                     self.round_no, self.score, self.mode)
 
+        if self.state == BATTLE:
+            self.boost_buttons = ui.draw_boost_buttons(
+                self.screen, self.fonts, self.mode, self.top1, self.top2)
+
         if self.state == COUNTDOWN:
             n = max(1, int(self.countdown) + 1)
             ui.draw_text(self.screen, self.fonts["big"],
@@ -238,7 +301,7 @@ class Game:
         elif self.state == ROUND_OVER:
             ui.draw_round_over(self.screen, self.fonts,
                                self.round_winner, self.score)
-        pygame.display.flip()
+        self.present()
 
     # --- главный цикл -----------------------------------------------------
     def run(self):

@@ -1,8 +1,10 @@
-"""Интерфейс: меню режима, сборка волчка, HUD и экраны раундов."""
+"""Интерфейс: меню режима, сборка волчка, HUD и экраны раундов.
+
+Поддерживает и клавиатуру (ПК), и тапы/мышь (телефон). Экраны строят список
+кнопок с прямоугольниками, по которым main распознаёт нажатия пальцем.
+"""
 
 from __future__ import annotations
-
-import math
 
 import pygame
 
@@ -15,7 +17,7 @@ def make_fonts():
     return {
         "big": pygame.font.SysFont("arial", 56, bold=True),
         "mid": pygame.font.SysFont("arial", 32, bold=True),
-        "small": pygame.font.SysFont("arial", 22),
+        "small": pygame.font.SysFont("arial", 26, bold=True),
         "tiny": pygame.font.SysFont("arial", 18),
     }
 
@@ -31,12 +33,23 @@ def draw_text(surf, font, text, color, center=None, topleft=None):
     return rect
 
 
+def _draw_button(surf, font, rect, label, active=False, ready=False):
+    rect = pygame.Rect(rect)
+    fill = C.DARK
+    border = C.YELLOW if (active or ready) else C.GREY
+    pygame.draw.rect(surf, fill, rect, border_radius=10)
+    pygame.draw.rect(surf, border, rect, 3, border_radius=10)
+    draw_text(surf, font, label, C.WHITE, center=rect.center)
+    return rect
+
+
 class ModeMenu:
     """Стартовое меню: против ИИ или два игрока."""
 
     def __init__(self):
         self.options = [("ai", "Против ИИ"), ("2p", "Два игрока")]
         self.index = 0
+        self.buttons = []  # [(rect, value)]
 
     def handle_key(self, key):
         if key in (pygame.K_UP, pygame.K_LEFT, pygame.K_w, pygame.K_a):
@@ -47,25 +60,32 @@ class ModeMenu:
             return self.options[self.index][0]
         return None
 
+    def handle_pointer(self, pos):
+        for rect, value in self.buttons:
+            if rect.collidepoint(pos):
+                return value
+        return None
+
     def draw(self, surf, fonts):
         surf.fill(C.BLACK)
         draw_text(surf, fonts["big"], "SPIN BATTLE", C.YELLOW,
                   center=(C.SCREEN_W // 2, 150))
         draw_text(surf, fonts["small"], "Битва волчков: форма + вес + материал",
                   C.GREY, center=(C.SCREEN_W // 2, 210))
-        for i, (_, label) in enumerate(self.options):
-            sel = i == self.index
-            col = C.YELLOW if sel else C.WHITE
-            prefix = "> " if sel else "  "
-            draw_text(surf, fonts["mid"], prefix + label, col,
-                      center=(C.SCREEN_W // 2, 330 + i * 60))
+        self.buttons = []
+        bw, bh = 360, 64
+        for i, (value, label) in enumerate(self.options):
+            rect = pygame.Rect(0, 0, bw, bh)
+            rect.center = (C.SCREEN_W // 2, 320 + i * 84)
+            _draw_button(surf, fonts["mid"], rect, label, active=i == self.index)
+            self.buttons.append((rect, value))
         draw_text(surf, fonts["tiny"],
-                  "Стрелки — выбор, Enter — подтвердить, Esc — выход",
+                  "Тапни по кнопке или: стрелки + Enter, Esc — выход",
                   C.GREY, center=(C.SCREEN_W // 2, C.SCREEN_H - 50))
 
 
 class TopBuilder:
-    """Сборка одного волчка по шагам: форма -> вес -> материал."""
+    """Сборка одного волчка: форма, вес, материал. Любую строку можно менять."""
 
     STEPS = ("shape", "weight", "material")
 
@@ -79,35 +99,46 @@ class TopBuilder:
         self.weight = C.WEIGHT_DEFAULT
         self.material_i = 0
         self.done = False
+        self.buttons = []  # [(rect, action)]
+
+    # --- изменения характеристик -----------------------------------------
+    def _change(self, field, d):
+        if field == "shape":
+            self.shape_i = (self.shape_i + d) % len(self.shapes)
+            self.step = 0
+        elif field == "weight":
+            self.weight = min(C.WEIGHT_MAX, max(C.WEIGHT_MIN, self.weight + d))
+            self.step = 1
+        elif field == "material":
+            self.material_i = (self.material_i + d) % len(self.materials)
+            self.step = 2
+
+    def _confirm(self):
+        if self.step < len(self.STEPS) - 1:
+            self.step += 1
+        else:
+            self.done = True
 
     def handle_key(self, key):
-        step = self.STEPS[self.step]
-        left = key in (pygame.K_LEFT, pygame.K_a)
-        right = key in (pygame.K_RIGHT, pygame.K_d)
-
-        if step == "shape":
-            if left:
-                self.shape_i = (self.shape_i - 1) % len(self.shapes)
-            elif right:
-                self.shape_i = (self.shape_i + 1) % len(self.shapes)
-        elif step == "weight":
-            if left:
-                self.weight = max(C.WEIGHT_MIN, self.weight - 1)
-            elif right:
-                self.weight = min(C.WEIGHT_MAX, self.weight + 1)
-        elif step == "material":
-            if left:
-                self.material_i = (self.material_i - 1) % len(self.materials)
-            elif right:
-                self.material_i = (self.material_i + 1) % len(self.materials)
-
-        if key in (pygame.K_RETURN, pygame.K_SPACE):
-            if self.step < len(self.STEPS) - 1:
-                self.step += 1
-            else:
-                self.done = True
+        field = self.STEPS[self.step]
+        if key in (pygame.K_LEFT, pygame.K_a):
+            self._change(field, -1)
+        elif key in (pygame.K_RIGHT, pygame.K_d):
+            self._change(field, +1)
+        elif key in (pygame.K_RETURN, pygame.K_SPACE):
+            self._confirm()
         elif key == pygame.K_BACKSPACE and self.step > 0:
             self.step -= 1
+
+    def handle_pointer(self, pos):
+        for rect, action in self.buttons:
+            if rect.collidepoint(pos):
+                kind = action[0]
+                if kind == "confirm":
+                    self._confirm()
+                else:
+                    self._change(kind, action[1])
+                return
 
     def build(self) -> Top:
         return Top(
@@ -118,35 +149,40 @@ class TopBuilder:
             name=self.player_label,
         )
 
-    def _preview_top(self) -> Top:
-        return self.build()
-
     def draw(self, surf, fonts):
         surf.fill(C.BLACK)
         draw_text(surf, fonts["mid"], f"{self.player_label}: собери волчок",
-                  self.color, center=(C.SCREEN_W // 2, 70))
+                  self.color, center=(C.SCREEN_W // 2, 60))
+        self.buttons = []
 
-        step = self.STEPS[self.step]
         shape_key = self.shapes[self.shape_i]
         mat_key = self.materials[self.material_i]
-
-        # Подсказки по шагам.
         rows = [
-            ("Форма", C.SHAPES[shape_key]["name"], step == "shape"),
-            ("Вес", f"{self.weight} / {C.WEIGHT_MAX}", step == "weight"),
-            ("Материал", C.MATERIALS[mat_key]["name"], step == "material"),
+            ("shape", "Форма", C.SHAPES[shape_key]["name"]),
+            ("weight", "Вес", f"{self.weight} / {C.WEIGHT_MAX}"),
+            ("material", "Материал", C.MATERIALS[mat_key]["name"]),
         ]
-        for i, (label, value, active) in enumerate(rows):
-            y = 160 + i * 56
-            col = C.YELLOW if active else C.WHITE
-            arrows = "  < >  " if active else "       "
+        cx = C.SCREEN_W // 2 - 90
+        for i, (field, label, value) in enumerate(rows):
+            y = 150 + i * 70
+            active = i == self.step
             draw_text(surf, fonts["small"], f"{label}:", C.GREY,
-                      topleft=(C.SCREEN_W // 2 - 220, y))
-            draw_text(surf, fonts["small"], f"{arrows}{value}", col,
-                      topleft=(C.SCREEN_W // 2 - 60, y))
+                      topleft=(cx - 200, y + 8))
+            # Кнопка "<"
+            lrect = pygame.Rect(cx, y, 48, 48)
+            _draw_button(surf, fonts["mid"], lrect, "<", active=active)
+            self.buttons.append((lrect, (field, -1)))
+            # Значение
+            draw_text(surf, fonts["small"], value,
+                      C.YELLOW if active else C.WHITE,
+                      center=(cx + 130, y + 24))
+            # Кнопка ">"
+            rrect = pygame.Rect(cx + 212, y, 48, 48)
+            _draw_button(surf, fonts["mid"], rrect, ">", active=active)
+            self.buttons.append((rrect, (field, +1)))
 
         # Превью характеристик.
-        preview = self._preview_top()
+        preview = self.build()
         stats = [
             f"Раскрутка: {int(preview.max_stamina)}",
             f"Урон формы: x{preview.damage_mult}",
@@ -157,7 +193,7 @@ class TopBuilder:
         ]
         for i, s in enumerate(stats):
             draw_text(surf, fonts["tiny"], s, C.GREEN,
-                      topleft=(120, 360 + i * 26))
+                      topleft=(70, 380 + i * 26))
 
         # Визуальный превью волчка.
         preview.pos = [C.SCREEN_W - 230, 430]
@@ -166,11 +202,15 @@ class TopBuilder:
         draw_text(surf, fonts["tiny"], "превью", C.GREY,
                   center=(C.SCREEN_W - 230, 500))
 
-        hint = ("Enter — дальше" if self.step < len(self.STEPS) - 1
-                else "Enter — в бой!")
+        # Кнопка подтверждения.
+        label = "Дальше" if self.step < len(self.STEPS) - 1 else "В БОЙ!"
+        crect = pygame.Rect(0, 0, 240, 60)
+        crect.center = (C.SCREEN_W // 2, C.SCREEN_H - 90)
+        _draw_button(surf, fonts["mid"], crect, label, ready=True)
+        self.buttons.append((crect, ("confirm",)))
         draw_text(surf, fonts["tiny"],
-                  f"Стрелки < > меняют, {hint}, Backspace — назад",
-                  C.GREY, center=(C.SCREEN_W // 2, C.SCREEN_H - 40))
+                  "Тапай < > и кнопку. На ПК: стрелки + Enter, Backspace — назад",
+                  C.GREY, center=(C.SCREEN_W // 2, C.SCREEN_H - 32))
 
 
 # --- HUD и экраны раундов --------------------------------------------------
@@ -187,12 +227,9 @@ def _draw_stamina_bar(surf, fonts, top, x, y, w, align_right=False):
         pygame.draw.rect(surf, col, (fx, y, fill, h), border_radius=6)
     pygame.draw.rect(surf, C.WHITE, (bar_x, y, w, h), 2, border_radius=6)
     label = f"{top.name}  {int(top.stamina)}"
-    draw_text(surf, fonts["tiny"], label, C.WHITE,
-              topleft=(bar_x, y - 24) if not align_right else None,
-              center=None)
-    if align_right:
-        img = fonts["tiny"].render(label, True, C.WHITE)
-        surf.blit(img, (bar_x + w - img.get_width(), y - 24))
+    img = fonts["tiny"].render(label, True, C.WHITE)
+    lx = bar_x + w - img.get_width() if align_right else bar_x
+    surf.blit(img, (lx, y - 24))
 
 
 def draw_hud(surf, fonts, t1, t2, round_no, score, mode):
@@ -202,11 +239,19 @@ def draw_hud(surf, fonts, t1, t2, round_no, score, mode):
               center=(C.SCREEN_W // 2, 40))
     draw_text(surf, fonts["small"], f"{score[0]} : {score[1]}", C.YELLOW,
               center=(C.SCREEN_W // 2, 78))
-    # Подсказка по бусту.
-    p2hint = "Enter — буст P2" if mode == "2p" else ""
-    draw_text(surf, fonts["tiny"],
-              f"Пробел — буст {t1.name}   {p2hint}", C.GREY,
-              center=(C.SCREEN_W // 2, C.SCREEN_H - 24))
+
+
+def draw_boost_buttons(surf, fonts, mode, t1, t2):
+    """Сенсорные кнопки буста. Возвращает {'p1': rect, 'p2': rect|None}."""
+    bw, bh = 160, 64
+    p1 = pygame.Rect(30, C.SCREEN_H - bh - 24, bw, bh)
+    _draw_button(surf, fonts["small"], p1, "БУСТ P1", ready=t1.special_ready)
+    result = {"p1": p1, "p2": None}
+    if mode == "2p":
+        p2 = pygame.Rect(C.SCREEN_W - bw - 30, C.SCREEN_H - bh - 24, bw, bh)
+        _draw_button(surf, fonts["small"], p2, "БУСТ P2", ready=t2.special_ready)
+        result["p2"] = p2
+    return result
 
 
 def draw_round_over(surf, fonts, winner_name, score):
@@ -218,7 +263,7 @@ def draw_round_over(surf, fonts, winner_name, score):
               center=(C.SCREEN_W // 2, C.SCREEN_H // 2 - 30))
     draw_text(surf, fonts["mid"], f"Счёт {score[0]} : {score[1]}", C.WHITE,
               center=(C.SCREEN_W // 2, C.SCREEN_H // 2 + 30))
-    draw_text(surf, fonts["tiny"], "Enter — следующий раунд", C.GREY,
+    draw_text(surf, fonts["tiny"], "Тапни / Enter — следующий раунд", C.GREY,
               center=(C.SCREEN_W // 2, C.SCREEN_H // 2 + 90))
 
 
@@ -230,5 +275,5 @@ def draw_match_over(surf, fonts, winner_name, score):
               center=(C.SCREEN_W // 2, C.SCREEN_H // 2 - 10))
     draw_text(surf, fonts["mid"], f"{score[0]} : {score[1]}", C.GREEN,
               center=(C.SCREEN_W // 2, C.SCREEN_H // 2 + 50))
-    draw_text(surf, fonts["tiny"], "Enter — новый матч,  Esc — выход", C.GREY,
-              center=(C.SCREEN_W // 2, C.SCREEN_H // 2 + 120))
+    draw_text(surf, fonts["tiny"], "Тапни / Enter — новый матч,  Esc — выход",
+              C.GREY, center=(C.SCREEN_W // 2, C.SCREEN_H // 2 + 120))

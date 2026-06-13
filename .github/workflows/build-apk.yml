@@ -1,0 +1,37 @@
+name: Build Spin Battle APK
+
+# Собирает Android APK игры Spin Battle на серверах GitHub (где сеть открыта
+# и доступен Android SDK/NDK). Готовый .apk появляется во вкладке Actions
+# как artifact "spin-battle-apk" — его можно скачать и установить на телефон.
+
+on:
+  push:
+    branches:
+      - claude/python-dice-battle-game-5r8075
+      - main
+    paths:
+      - "spin_battle/**"
+      - ".github/workflows/build-apk.yml"
+  workflow_dispatch: {}   # ручной запуск кнопкой "Run workflow"
+
+jobs:
+  build-apk:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build APK with Buildozer
+        uses: ArtemSBulgakov/buildozer-action@v1
+        id: buildozer
+        with:
+          command: buildozer android debug
+          workdir: spin_battle
+          buildozer_version: stable
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: spin-battle-apk
+          path: spin_battle/bin/*.apk
+          if-no-files-found: error
