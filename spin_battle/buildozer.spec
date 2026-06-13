@@ -17,6 +17,11 @@ version = 1.0
 # Зависимости: python и pygame (p4a сам берёт sdl2-bootstrap для pygame)
 requirements = python3,pygame
 
+# Берём свежий python-for-android: в нём починен рецепт libffi
+# (старый падал на autoreconf: undefined macro LT_SYS_SYMBOL_USCORE)
+p4a.fork = kivy
+p4a.branch = develop
+
 # Игра рассчитана на горизонтальную ориентацию и полный экран
 orientation = landscape
 fullscreen = 1
