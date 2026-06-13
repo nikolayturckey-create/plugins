@@ -1,0 +1,64 @@
+name: Build Spin Battle APK
+
+# Собирает Android APK игры Spin Battle прямо на раннере GitHub (сеть открыта,
+# Android SDK/NDK buildozer скачивает сам). Готовый .apk появляется во вкладке
+# Actions как artifact "spin-battle-apk" — его можно скачать и поставить на телефон.
+
+on:
+  push:
+    branches:
+      - claude/python-dice-battle-game-5r8075
+      - main
+    paths:
+      - "spin_battle/**"
+      - ".github/workflows/build-apk.yml"
+  workflow_dispatch: {}   # ручной запуск кнопкой "Run workflow"
+
+jobs:
+  build-apk:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential ccache git zip unzip openjdk-17-jdk \
+            autoconf automake libtool libtool-bin pkg-config \
+            zlib1g-dev libncurses-dev libffi-dev libssl-dev cmake
+
+      - name: Install Buildozer
+        run: |
+          python -m pip install --upgrade pip wheel
+          pip install --upgrade "cython==0.29.36" buildozer
+
+      - name: Cache Buildozer downloads
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.buildozer
+            spin_battle/.buildozer
+          key: buildozer-${{ hashFiles('spin_battle/buildozer.spec') }}
+          restore-keys: |
+            buildozer-
+
+      - name: Build debug APK
+        working-directory: spin_battle
+        run: |
+          export JAVA_HOME=$(dirname $(dirname $(readlink -f $(which java))))
+          buildozer --verbose android debug
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: spin-battle-apk
+          path: spin_battle/bin/*.apk
+          if-no-files-found: error
