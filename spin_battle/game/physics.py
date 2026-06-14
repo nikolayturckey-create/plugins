@@ -14,11 +14,18 @@ from . import config as C
 
 
 def _apply_hit_damage(attacker, target, impulse: float) -> float:
-    """Снять раскрутку с target за удар атакующего. Возвращает урон."""
+    """Снять раскрутку с target за удар атакующего. Возвращает урон.
+
+    Урон ограничен долей от запаса раскрутки цели (потолок за удар), поэтому
+    ни один удар не «ваншотит» — бой идёт на много обменов.
+    """
+    special = attacker.boosting > 0
     mult = attacker.damage_mult
-    if attacker.boosting > 0:
+    if special:
         mult *= C.SPECIAL_DAMAGE_MULT
-    dmg = C.HIT_DAMAGE_K * impulse * mult / target.toughness
+    raw = C.HIT_DAMAGE_K * impulse * mult / target.toughness
+    cap = (C.SPECIAL_HIT_CAP if special else C.HIT_CAP) * target.max_stamina
+    dmg = min(raw, cap)
     target.stamina -= dmg
     if target.stamina <= 0:
         target.stamina = 0
