@@ -87,6 +87,21 @@ def resolve_top_collision(a, b, allow_special: bool = True):
     return {"point": point, "impulse": impulse, "special": special, "damage": dmg}
 
 
+def _apply_bounce_gain(top):
+    """Разгон при отскоке (резина набирает скорость), с потолком max_speed."""
+    g = getattr(top, "bounce_gain", 1.0)
+    if g <= 1.0:
+        return
+    top.vel[0] *= g
+    top.vel[1] *= g
+    sp = math.hypot(top.vel[0], top.vel[1])
+    ms = getattr(top, "max_speed", C.MAX_SPEED)
+    if sp > ms:
+        k = ms / sp
+        top.vel[0] *= k
+        top.vel[1] *= k
+
+
 def resolve_wall(top, center, arena_radius) -> bool:
     """Отскок волчка от круглой стенки арены. True, если был контакт."""
     cx, cy = center
@@ -106,6 +121,7 @@ def resolve_wall(top, center, arena_radius) -> bool:
     if vn > 0:
         top.vel[0] -= (1 + top.restitution) * vn * nx
         top.vel[1] -= (1 + top.restitution) * vn * ny
+        _apply_bounce_gain(top)
     top.stamina -= C.WALL_DRAIN
     if top.stamina <= 0:
         top.stamina = 0
@@ -130,6 +146,7 @@ def resolve_obstacle(top, obstacle):
     if vn < 0:
         top.vel[0] -= (1 + top.restitution) * vn * nx
         top.vel[1] -= (1 + top.restitution) * vn * ny
+        _apply_bounce_gain(top)
     top.stamina -= random.uniform(C.OBSTACLE_DRAIN_MIN, C.OBSTACLE_DRAIN_MAX)
     if top.stamina <= 0:
         top.stamina = 0

@@ -65,6 +65,7 @@ class Game:
 
         self.arena = Arena()
         self.effects = Effects()
+        self._bg = self._make_background()
         self._ko_font = pygame.font.SysFont("arial", 96, bold=True)
         # Тайминг «сочности».
         self.time_scale = 1.0   # < 1 во время slow-mo (K.O.)
@@ -211,15 +212,11 @@ class Game:
         for t in (self.top1, self.top2):
             t.update(dt, self.arena.center)
             if physics.resolve_wall(t, self.arena.center, self.arena.radius):
-                if t.speed > 230:
-                    self.effects.sparks((t.pos[0], t.pos[1]), t.speed * 0.4)
-                    self.sound.play("wall", 0.25)
+                self._bounce_fx(t, (t.pos[0], t.pos[1]), wall=True)
             for obs in self.arena.obstacles:
                 pt = physics.resolve_obstacle(t, obs)
                 if pt:
-                    self.effects.sparks(pt, t.speed * 0.5)
-                    self.effects.smoke_puff(pt, 2)
-                    self.sound.play("wall", 0.3)
+                    self._bounce_fx(t, pt, wall=False)
 
         hit = physics.resolve_top_collision(self.top1, self.top2)
         if hit:
@@ -237,6 +234,22 @@ class Game:
 
         if not self.top1.alive or not self.top2.alive:
             self.begin_ko()
+
+    def _bounce_fx(self, t, point, wall):
+        """Эффекты отскока. Резина — «смачно»: волна, искры, тряска, squash, бдыщ."""
+        sp = t.speed
+        if t.material == "rubber":
+            self.effects.sparks(point, sp * 0.8)
+            self.effects.shockwave(point, sp * 1.1, t.color)
+            self.effects.shake = max(self.effects.shake, min(16, sp / 45))
+            t.squash(0.5)
+            self.sound.play("boing", min(1.0, 0.45 + sp / 800))
+        else:
+            if not wall or sp > 230:
+                self.effects.sparks(point, sp * (0.5 if not wall else 0.4))
+                if not wall:
+                    self.effects.smoke_puff(point, 2)
+                self.sound.play("wall", 0.3 if not wall else 0.25)
 
     # --- K.O.-секвенция ---------------------------------------------------
     def begin_ko(self):
@@ -335,6 +348,15 @@ class Game:
             self.arena.update(real_dt)
             self.effects.update(real_dt)
 
+    def _make_background(self):
+        """Вертикальный градиент-фон (кэш, рисуется один раз)."""
+        bg = pygame.Surface((C.SCREEN_W, C.SCREEN_H))
+        for y in range(C.SCREEN_H):
+            t = y / C.SCREEN_H
+            col = tuple(int(a + (b - a) * t) for a, b in zip(C.BG_TOP, C.BG_BOTTOM))
+            pygame.draw.line(bg, col, (0, y), (C.SCREEN_W, y))
+        return bg
+
     # --- масштабирование на реальный экран --------------------------------
     def present(self):
         dw, dh = self.display.get_size()
@@ -377,7 +399,7 @@ class Game:
             return
 
         # --- сцена боя: послойно на world ---
-        self.world.fill(C.BLACK)
+        self.world.blit(self._bg, (0, 0))
         self.arena.draw(self.world, pulse=self.effects.pulse)
         self.effects.draw_smoke(self.world)
         self.effects.draw_waves(self.world)

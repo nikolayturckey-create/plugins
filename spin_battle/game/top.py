@@ -59,6 +59,8 @@ class Top:
         self.drain = sh["drain"]
         self.toughness = mat["toughness"]
         self.restitution = mat["restitution"]
+        self.bounce_gain = mat.get("bounce_gain", 1.0)
+        self.max_speed = C.MAX_SPEED * mat.get("speed_cap", 1.0)
         self.agility = C.agility(self.weight)
 
         # Состояние боя.
@@ -79,6 +81,9 @@ class Top:
         self.dead = False
         self.death_timer = 0.0
         self.lean = 0.0            # визуальный «крен» при смерти
+
+        # Детальный спрайт волчка пекём один раз, потом крутим/масштабируем.
+        self._sprite = self._bake_sprite()
 
     # --- размещение перед раундом ----------------------------------------
     def place(self, x: float, y: float, toward):
@@ -160,8 +165,8 @@ class Top:
         self.vel[1] *= fr
 
         sp = self.speed
-        if sp > C.MAX_SPEED:
-            k = C.MAX_SPEED / sp
+        if sp > self.max_speed:
+            k = self.max_speed / sp
             self.vel[0] *= k
             self.vel[1] *= k
         elif 0 < sp < C.MIN_SPEED_KEEP:
@@ -214,45 +219,75 @@ class Top:
             col = tuple(int(c * frac * 0.5) for c in self.color)
             pygame.draw.circle(surf, col, (int(tx), int(ty)), rr)
 
-    def _body_points(self, x, y, r):
-        pts = []
-        for k in range(4):
-            a = self.angle + k * (math.pi / 2) + math.pi / 4
-            pts.append((x + math.cos(a) * r, y + math.sin(a) * r))
-        return pts
-
-    def _draw_body(self, surf, x, y, base):
-        r = self.radius * self.impact_scale
-        # squash по направлению движения: чуть сплющиваем по X
-        rx = max(3, int(r * (2.0 - self.impact_scale)))
-        ry = max(3, int(r))
-
-        # тень
-        sh = pygame.Surface((rx * 2 + 6, ry + 8), pygame.SRCALPHA)
-        pygame.draw.ellipse(sh, (0, 0, 0, 90), sh.get_rect())
-        surf.blit(sh, (int(x - rx - 3), int(y + ry * 0.5)))
+    def _bake_sprite(self):
+        """Один раз отрисовать детальный волчок на маленькую поверхность."""
+        R = self.radius
+        S = int(R * 2.6) + 6
+        c = S // 2
+        spr = pygame.Surface((S, S), pygame.SRCALPHA)
+        base = self.color
 
         if self.shape == "sphere":
-            # металлический шар: тёмный край -> светлый центр + блик
-            for layer, k in ((1.0, 0.7), (0.78, 1.0), (0.5, 1.25)):
-                col = _shade(base, k)
-                pygame.draw.circle(surf, col, (int(x), int(y)), int(ry * layer))
-            # блик
-            gx, gy = int(x - rx * 0.35), int(y - ry * 0.4)
-            pygame.draw.circle(surf, C.STEEL_GLINT, (gx, gy), max(2, int(ry * 0.18)))
-            pygame.draw.circle(surf, _shade(base, 0.5), (int(x), int(y)), ry, 2)
-            # вращающаяся «спица»
-            ex = x + math.cos(self.angle) * ry * 0.9
-            ey = y + math.sin(self.angle) * ry * 0.9
-            pygame.draw.line(surf, C.STEEL_GLINT, (x, y), (ex, ey), 2)
-        else:  # cube — стальной квадрат с фаской
-            pts = self._body_points(x, y, r)
-            pygame.draw.polygon(surf, _shade(base, 0.7), pts)
-            inner = self._body_points(x, y, r * 0.62)
-            pygame.draw.polygon(surf, _shade(base, 1.15), inner)
-            pygame.draw.polygon(surf, _shade(base, 0.45), pts, 2)
-            # блик на грани
-            pygame.draw.line(surf, C.STEEL_GLINT, pts[0], pts[1], 2)
+            steps = 8
+            for i in range(steps):
+                t = i / (steps - 1)
+                rr = int(R * (1 - t * 0.93))
+                if rr > 0:
+                    pygame.draw.circle(spr, _shade(base, 0.55 + 0.8 * t),
+                                       (c, c), rr)
+            for gr in (0.85, 0.65, 0.45):   # канавки
+                pygame.draw.circle(spr, _shade(base, 0.5), (c, c), int(R * gr), 1)
+            pygame.draw.circle(spr, _shade(base, 0.4), (c, c), int(R), 2)
+        else:  # cube — стальная плита с лезвиями
+            h = R * 0.82
+            steps = 6
+            for i in range(steps):
+                t = i / (steps - 1)
+                hh = int(h * (1 - t * 0.82))
+                rect = pygame.Rect(c - hh, c - hh, hh * 2, hh * 2)
+                pygame.draw.rect(spr, _shade(base, 0.5 + 0.85 * t), rect,
+                                 border_radius=max(2, int(hh * 0.2)))
+            for s in range(4):             # атакующие накладки-лезвия
+                a = s * math.pi / 2
+                mx, my = c + math.cos(a) * h, c + math.sin(a) * h
+                px, py = -math.sin(a), math.cos(a)
+                blade = [
+                    (mx + px * h * 0.5, my + py * h * 0.5),
+                    (mx - px * h * 0.5, my - py * h * 0.5),
+                    (mx + math.cos(a) * R * 0.5, my + math.sin(a) * R * 0.5),
+                ]
+                pygame.draw.polygon(spr, _shade(base, 1.25), blade)
+            pygame.draw.rect(spr, _shade(base, 0.4),
+                             pygame.Rect(c - h, c - h, h * 2, h * 2), 2,
+                             border_radius=int(h * 0.2))
+
+        # болты по ободу
+        boltr = max(2, int(R * 0.1))
+        for i in range(C.BOLTS):
+            a = i * math.tau / C.BOLTS
+            bx, by = int(c + math.cos(a) * R * 0.76), int(c + math.sin(a) * R * 0.76)
+            pygame.draw.circle(spr, _shade(base, 0.4), (bx, by), boltr + 1)
+            pygame.draw.circle(spr, _shade(base, 1.3), (bx, by), boltr)
+
+        # центральная втулка
+        hr = max(3, int(R * C.HUB_RATIO))
+        pygame.draw.circle(spr, _shade(base, 0.45), (c, c), hr + 2)
+        pygame.draw.circle(spr, _shade(base, 1.15), (c, c), hr)
+        pygame.draw.circle(spr, C.STEEL_GLINT, (c - hr // 3, c - hr // 3),
+                           max(1, hr // 3))
+
+        # материал-акцент
+        if self.material == "wood":
+            for gr in (0.7, 0.5, 0.3):
+                pygame.draw.circle(spr, _shade(base, 0.72), (c, c), int(R * gr), 1)
+
+        # запечённый спекуляр-блик (глянец сильнее у резины)
+        spec = pygame.Surface((S, S), pygame.SRCALPHA)
+        alpha = 120 if self.material == "rubber" else 70
+        pygame.draw.circle(spec, (255, 255, 255, alpha),
+                           (int(c - R * 0.32), int(c - R * 0.36)), int(R * 0.3))
+        spr.blit(spec, (0, 0))
+        return spr
 
     def draw(self, surf: pygame.Surface):
         if self.dead:
@@ -260,41 +295,58 @@ class Top:
 
         self._draw_trail(surf)
 
-        base = self.color
-        if self.flash > 0:
-            base = tuple(min(255, int(c + (255 - c) * self.flash)) for c in base)
-
-        # покачивание при низкой раскрутке (или крен при смерти)
         ratio = self.stamina_ratio()
         wob = (1.0 - ratio) * 6 if not self.dying else 0.0
-        wx = math.cos(self.wobble_phase) * wob
-        wy = math.sin(self.wobble_phase * 1.3) * wob * 0.6
-        x = self.pos[0] + wx
-        y = self.pos[1] + wy
+        x = self.pos[0] + math.cos(self.wobble_phase) * wob
+        y = self.pos[1] + math.sin(self.wobble_phase * 1.3) * wob * 0.6
+        R = self.radius
+        deg = -math.degrees(self.angle)
+        scale = max(0.2, self.impact_scale)
+
+        # мягкая тень
+        sh = pygame.Surface((int(R * 2.2), int(R)), pygame.SRCALPHA)
+        pygame.draw.ellipse(sh, (0, 0, 0, 110), sh.get_rect())
+        surf.blit(sh, (int(x - R * 1.1), int(y + R * 0.45)))
 
         if self.dying:
-            # крен + проседание + затухание через временную поверхность
             frac = max(0.0, self.death_timer / C.DEATH_DURATION)
-            pad = int(self.radius * 2.4)
-            tmp = pygame.Surface((pad * 2, pad * 2), pygame.SRCALPHA)
-            self._draw_body(tmp, pad, pad, base)
-            tmp = pygame.transform.rotozoom(tmp, math.degrees(self.lean * 0.5),
-                                            0.6 + 0.4 * frac)
-            tmp.set_alpha(int(60 + 195 * frac))
-            rect = tmp.get_rect(center=(int(x), int(y + (1 - frac) * 10)))
-            surf.blit(tmp, rect)
+            img = pygame.transform.rotozoom(
+                self._sprite, deg + self.lean * 30,
+                max(0.2, (0.55 + 0.45 * frac) * scale))
+            img.set_alpha(int(55 + 200 * frac))
+            surf.blit(img, img.get_rect(center=(int(x), int(y + (1 - frac) * 12))))
             return
 
-        # свечение готового спецудара / активного буста
+        # скоростная аура резины
+        if self.material == "rubber" and self.speed > C.MAX_SPEED * 0.8:
+            ar = int(R * 2)
+            aura = pygame.Surface((ar * 2, ar * 2), pygame.SRCALPHA)
+            pygame.draw.circle(aura, (*self.color, 60), (ar, ar), ar)
+            surf.blit(aura, (int(x - ar), int(y - ar)))
+
+        # спин-блюр на высокой скорости
+        if C.SPIN_BLUR and self.speed > C.MAX_SPEED * 0.6:
+            blur = pygame.transform.rotozoom(self._sprite, deg + 16, scale)
+            blur.set_alpha(70)
+            surf.blit(blur, blur.get_rect(center=(int(x), int(y))))
+
         if self.boosting > 0:
-            glow = pygame.Surface((int(self.radius * 4), int(self.radius * 4)),
-                                  pygame.SRCALPHA)
-            gr = glow.get_width() // 2
-            pygame.draw.circle(glow, (*C.YELLOW, 70), (gr, gr), gr)
+            gr = int(R * 2)
+            glow = pygame.Surface((gr * 2, gr * 2), pygame.SRCALPHA)
+            pygame.draw.circle(glow, (*C.YELLOW, 80), (gr, gr), gr)
             surf.blit(glow, (int(x - gr), int(y - gr)))
 
-        self._draw_body(surf, x, y, base)
+        img = pygame.transform.rotozoom(self._sprite, deg, scale)
+        surf.blit(img, img.get_rect(center=(int(x), int(y))))
 
-        if self.special_ready and not self.dying:
-            r = int(self.radius)
-            pygame.draw.circle(surf, C.YELLOW, (int(x), int(y)), r + 5, 2)
+        # вспышка удара
+        if self.flash > 0:
+            fr = int(R * 1.1)
+            fl = pygame.Surface((fr * 2, fr * 2), pygame.SRCALPHA)
+            pygame.draw.circle(fl, (255, 255, 255, int(150 * self.flash)),
+                               (fr, fr), int(R))
+            surf.blit(fl, (int(x - fr), int(y - fr)))
+
+        if self.special_ready:
+            pygame.draw.circle(surf, C.YELLOW, (int(x), int(y)), int(R + 5), 2)
+

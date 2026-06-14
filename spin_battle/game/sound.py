@@ -105,6 +105,17 @@ class SoundManager:
         # Тинк об стенку.
         self.sounds["wall"] = self._make(self._tone(1800, 0.06, decay=16, amp=0.35))
 
+        # «Бдыщ» резинового отскока: скользящий вниз тон + лёгкий «пружинный» хвост.
+        n = int(self.freq * 0.2)
+        boing = []
+        for i in range(n):
+            t = i / self.freq
+            f = 520 - 330 * (i / n)
+            w = math.sin(2 * math.pi * f * t)
+            w += 0.25 * math.sin(2 * math.pi * f * 2 * t)
+            boing.append(w * 0.5 * _envelope(i, n, 3.5))
+        self.sounds["boing"] = self._make(boing)
+
         # Бип отсчёта/старта.
         self.sounds["beep"] = self._make(self._tone(660, 0.10, decay=6, amp=0.4))
         self.sounds["start"] = self._make(self._tone(990, 0.22, decay=4, amp=0.5))
