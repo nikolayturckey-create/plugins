@@ -51,6 +51,8 @@ class ModeMenu:
             ("survival", "Выживание"),
             ("ai", "1 на 1 (ИИ)"),
             ("2p", "Два игрока"),
+            ("host", "Создать игру (LAN)"),
+            ("join", "Найти игру (LAN)"),
         ]
         self.index = 0
         self.buttons = []  # [(rect, value)]
@@ -342,6 +344,32 @@ def draw_upgrade_cards(surf, fonts, upgrades):
                           center=(rect.centerx, rect.top + 140 + li * 26))
         cards.append((rect, i))
     return cards
+
+
+def draw_net_wait(surf, fonts, is_host, ip, error):
+    surf.fill(C.BLACK)
+    if error:
+        draw_text(surf, fonts["mid"], "Не удалось подключиться", C.RED,
+                  center=(C.SCREEN_W // 2, C.SCREEN_H // 2 - 30))
+        draw_text(surf, fonts["small"], str(error), C.GREY,
+                  center=(C.SCREEN_W // 2, C.SCREEN_H // 2 + 20))
+        draw_text(surf, fonts["tiny"], "Тапни / Esc — в меню", C.GREY,
+                  center=(C.SCREEN_W // 2, C.SCREEN_H // 2 + 80))
+        return
+    if is_host:
+        draw_text(surf, fonts["mid"], "Ожидание игрока…", C.YELLOW,
+                  center=(C.SCREEN_W // 2, C.SCREEN_H // 2 - 40))
+        draw_text(surf, fonts["small"], "Второй игрок: «Найти игру»",
+                  C.WHITE, center=(C.SCREEN_W // 2, C.SCREEN_H // 2 + 20))
+        draw_text(surf, fonts["tiny"], f"в той же Wi-Fi. Твой IP: {ip}", C.GREY,
+                  center=(C.SCREEN_W // 2, C.SCREEN_H // 2 + 60))
+    else:
+        draw_text(surf, fonts["mid"], "Поиск игры в сети…", C.YELLOW,
+                  center=(C.SCREEN_W // 2, C.SCREEN_H // 2 - 20))
+        draw_text(surf, fonts["tiny"], "Нужна та же Wi-Fi, что у хоста", C.GREY,
+                  center=(C.SCREEN_W // 2, C.SCREEN_H // 2 + 40))
+    draw_text(surf, fonts["tiny"], "Тапни / Esc — отмена", C.GREY,
+              center=(C.SCREEN_W // 2, C.SCREEN_H - 50))
 
 
 def draw_game_over(surf, fonts, score, wave, kills):

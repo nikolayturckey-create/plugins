@@ -23,7 +23,7 @@ if "--smoke-test" in sys.argv:
 import pygame
 
 from game import config as C
-from game import physics, ui
+from game import net, physics, ui
 from game.arena import Arena
 from game.effects import Effects
 from game.sound import SoundManager
@@ -31,7 +31,7 @@ from game.top import Top
 
 # Состояния автомата.
 (MODE, BUILD, COUNTDOWN, BATTLE, KO, ROUND_OVER, MATCH_OVER,
- SURVIVAL, WAVE_CLEAR, GAME_OVER) = range(10)
+ SURVIVAL, WAVE_CLEAR, GAME_OVER, NET_WAIT, NET_PLAY) = range(12)
 
 
 def random_top(color, name) -> Top:
@@ -154,11 +154,19 @@ class Game:
         self.dash_rect = None
         self.pointer_down = False
         self.pointer_pos = (0, 0)
+        # Сеть
+        if getattr(self, "net", None):
+            self.net.close()
+        self.net = None
+        self.is_host = False
+        self.net_phase = "play"
+        self.net_winner = None
+        self.net_boost = False
         self.sound.stop_spin()
 
     def start_builders(self, mode):
         self.mode = mode
-        label = "Ты" if mode == "survival" else "Игрок 1"
+        label = "Игрок 1" if mode in ("ai", "2p") else "Ты"
         self.builders = [ui.TopBuilder(label, C.P1_COLOR)]
         if mode == "2p":
             self.builders.append(ui.TopBuilder("Игрок 2", C.P2_COLOR))
@@ -168,6 +176,9 @@ class Game:
     def begin_match(self):
         if self.mode == "survival":
             self.begin_survival()
+            return
+        if self.mode in ("host", "join"):
+            self.begin_net()
             return
         self.top1 = self.builders[0].build()
         if self.mode == "2p":
@@ -431,6 +442,9 @@ class Game:
         elif self.state == GAME_OVER:
             if e.key == pygame.K_RETURN:
                 self.begin_survival()
+        elif self.state == NET_PLAY:
+            if e.key in (pygame.K_SPACE, pygame.K_RETURN):
+                self._net_dash()
         elif self.state == ROUND_OVER:
             if e.key == pygame.K_RETURN:
                 self.start_round()
@@ -470,6 +484,13 @@ class Game:
                     break
         elif self.state == GAME_OVER:
             self.begin_survival()
+        elif self.state == NET_WAIT:
+            self.net_disconnected()
+        elif self.state == NET_PLAY:
+            if self.net_phase == "ko":
+                self.net_rematch()
+            elif self.dash_rect and self.dash_rect.collidepoint(pos):
+                self._net_dash()
         elif self.state == ROUND_OVER:
             self.start_round()
         elif self.state == MATCH_OVER:
@@ -600,6 +621,193 @@ class Game:
         else:
             self.state = ROUND_OVER
 
+    # --- Сетевая игра (LAN) ----------------------------------------------
+    def _builder_config(self):
+        b = self.builders[0]
+        return {"shape": b.shapes[b.shape_i], "weight": b.weight,
+                "material": b.materials[b.material_i]}
+
+    def begin_net(self):
+        cfg = self._builder_config()
+        if self.mode == "host":
+            self.arena.generate_obstacles(random.randint(2, 4))
+            self._build_stage()
+            cfg["obs"] = [[round(o[0], 1), round(o[1], 1), round(o[2], 1)]
+                          for o in self.arena.obstacles]
+            self.is_host = True
+            self.net = net.HostNet(cfg)
+        else:
+            self.is_host = False
+            self.net = net.ClientNet(cfg)
+        self.net_phase = "play"
+        self.net_winner = None
+        self.net_boost = False
+        self.state = NET_WAIT
+
+    def setup_net_battle(self):
+        peer = self.net.peer_config or {}
+        mine = self._builder_config()
+        host_cfg = mine if self.is_host else peer
+        guest_cfg = peer if self.is_host else mine
+        self.top1 = Top(host_cfg["shape"], host_cfg["weight"],
+                        host_cfg["material"], C.P1_COLOR, "Хост")
+        self.top2 = Top(guest_cfg["shape"], guest_cfg["weight"],
+                        guest_cfg["material"], C.P2_COLOR, "Гость")
+        self.top1.player = self.top2.player = True
+        if not self.is_host and peer.get("obs"):
+            self.arena.obstacles = [tuple(o) for o in peer["obs"]]
+            self.arena.bake()
+            self._build_stage()
+        p1, p2 = self.arena.spawn_points()
+        self.top1.place(*p1, toward=self.arena.center)
+        self.top2.place(*p2, toward=self.arena.center)
+        self.top1.vel = [0.0, 0.0]
+        self.top2.vel = [0.0, 0.0]
+        self._net_prev_st = [self.top1.stamina, self.top2.stamina]
+        self.effects = Effects()
+        self.score = [0, 0]
+        self.state = NET_PLAY
+        self.sound.start_spin()
+
+    def _move_dir_for(self, top):
+        keys = pygame.key.get_pressed()
+        kx = (keys[pygame.K_d] or keys[pygame.K_RIGHT]) - \
+             (keys[pygame.K_a] or keys[pygame.K_LEFT])
+        ky = (keys[pygame.K_s] or keys[pygame.K_DOWN]) - \
+             (keys[pygame.K_w] or keys[pygame.K_UP])
+        if kx or ky:
+            m = math.hypot(kx, ky)
+            return kx / m, ky / m
+        if self.pointer_down and not (
+                self.dash_rect and self.dash_rect.collidepoint(self.pointer_pos)):
+            vx = self.pointer_pos[0] - top.pos[0]
+            vy = self.pointer_pos[1] - top.pos[1]
+            d = math.hypot(vx, vy)
+            if d > 10:
+                return vx / d, vy / d
+        return 0.0, 0.0
+
+    def update_net(self, dt):
+        if not self.net or self.net.error or not self.net.connected:
+            self.net_disconnected()
+            return
+        if self.is_host:
+            self._update_net_host(dt)
+        else:
+            self._update_net_client(dt)
+
+    def _update_net_host(self, dt):
+        # Локальный игрок — top1; гость — top2 (ввод из сети).
+        dx, dy = self._move_dir_for(self.top1)
+        self.top1.thrust = [dx * C.PLAYER_THRUST, dy * C.PLAYER_THRUST]
+        ci = self.net.latest_input or {}
+        self.top2.thrust = [ci.get("dx", 0.0) * C.PLAYER_THRUST,
+                            ci.get("dy", 0.0) * C.PLAYER_THRUST]
+        if ci.get("boost"):
+            self.top2.boost(self.top1)
+
+        if self.net_phase == "play":
+            for t in (self.top1, self.top2):
+                t.update(dt, self.arena.center)
+                if physics.resolve_wall(t, self.arena.center, self.arena.radius):
+                    self._bounce_fx(t, (t.pos[0], t.pos[1]), wall=True)
+                for obs in self.arena.obstacles:
+                    pt = physics.resolve_obstacle(t, obs)
+                    if pt:
+                        self._bounce_fx(t, pt, wall=False)
+            hit = physics.resolve_top_collision(self.top1, self.top2)
+            if hit:
+                self.top1.squash()
+                self.top2.squash()
+                fr, _z = self.effects.hit(hit["point"], hit["impulse"],
+                                          hit["special"])
+                self.freeze = max(self.freeze, fr)
+                self.sound.play("hit", min(1.0, 0.4 + hit["impulse"] / 900))
+            if not self.top1.alive or not self.top2.alive:
+                self.net_phase = "ko"
+                win = self.top1 if self.top1.alive else self.top2
+                self.net_winner = win.name
+                (self.top2 if self.top1.alive else self.top1).start_death()
+                self.effects.flash = min(1.0, self.effects.flash + 0.5)
+                self.sound.play("ko", 0.9)
+        else:
+            for t in (self.top1, self.top2):
+                t.update(dt, self.arena.center)
+
+        self.arena.update(dt)
+        self.effects.update(dt)
+        self._net_send_state()
+
+    def _net_send_state(self):
+        def pack(t):
+            return {"x": round(t.pos[0], 1), "y": round(t.pos[1], 1),
+                    "an": round(t.angle, 2), "st": round(t.stamina, 1),
+                    "mx": round(t.max_stamina, 1), "al": t.alive,
+                    "bo": t.boosting > 0, "sr": t.special_ready}
+        self.net.send_state({"a": pack(self.top1), "b": pack(self.top2),
+                             "ph": self.net_phase, "win": self.net_winner})
+
+    def _update_net_client(self, dt):
+        # Локальный игрок — top2; шлём свой ввод, рисуем по состоянию хоста.
+        dx, dy = self._move_dir_for(self.top2)
+        inp = {"dx": dx, "dy": dy, "boost": self.net_boost}
+        self.net_boost = False
+        self.net.send_input(inp)
+
+        st = self.net.latest_state
+        if st:
+            self.net_phase = st.get("ph", "play")
+            self.net_winner = st.get("win")
+            self._apply_remote(self.top1, st["a"])
+            self._apply_remote(self.top2, st["b"])
+        self.arena.update(dt)
+        for t in (self.top1, self.top2):
+            t.angle = t.angle  # без физики; угол берём из состояния
+        self.effects.update(dt)
+
+    def _apply_remote(self, t, d):
+        prev = t.stamina
+        t.pos = [d["x"], d["y"]]
+        t.angle = d["an"]
+        t.stamina = d["st"]
+        t.max_stamina = d["mx"]
+        was_alive = t.alive
+        t.alive = d["al"]
+        t.boosting = 0.6 if d["bo"] else 0.0
+        t.special_cd = 0.0 if d["sr"] else 1.0
+        # немного «сока» на клиенте: искры при получении урона, осколки при смерти
+        if d["st"] < prev - 1:
+            self.effects.sparks((t.pos[0], t.pos[1]), 260)
+        if was_alive and not t.alive:
+            self.effects.debris_burst((t.pos[0], t.pos[1]), t.color, 18)
+            self.sound.play("hit", 0.7)
+
+    def _net_dash(self):
+        if self.state != NET_PLAY or self.net_phase != "play":
+            return
+        if self.is_host:
+            if self.top1.boost(self.top2):
+                self.sound.play("special", 0.6)
+        else:
+            self.net_boost = True
+            self.sound.play("special", 0.6)
+
+    def net_rematch(self):
+        if self.is_host and self.net_phase == "ko":
+            self.net_phase = "play"
+            self.net_winner = None
+            p1, p2 = self.arena.spawn_points()
+            self.top1.place(*p1, toward=self.arena.center)
+            self.top2.place(*p2, toward=self.arena.center)
+            self.top1.vel = [0.0, 0.0]
+            self.top2.vel = [0.0, 0.0]
+
+    def net_disconnected(self):
+        if getattr(self, "net", None):
+            self.net.close()
+        self.net = None
+        self.reset_to_menu()
+
     # --- общий апдейт -----------------------------------------------------
     def update(self, real_dt):
         # Hit-stop: на пару кадров всё замирает (кроме таймера заморозки).
@@ -628,6 +836,16 @@ class Game:
             self.update_ko(real_dt)
         elif self.state == SURVIVAL:
             self.update_survival(real_dt)
+        elif self.state == NET_WAIT:
+            if self.net and self.net.error:
+                self.net_disconnected()
+                return
+            if self.net and self.net.connected and self.net.peer_config:
+                self.setup_net_battle()
+            self.arena.update(real_dt)
+            self.effects.update(real_dt)
+        elif self.state == NET_PLAY:
+            self.update_net(real_dt)
         else:
             self.arena.update(real_dt)
             self.effects.update(real_dt)
@@ -711,6 +929,12 @@ class Game:
                               self.wave, self.kills)
             self.present()
             return
+        if self.state == NET_WAIT:
+            err = self.net.error if self.net else "нет сети"
+            ip = self.net.ip if (self.net and self.is_host) else ""
+            ui.draw_net_wait(self.screen, self.fonts, self.is_host, ip, err)
+            self.present()
+            return
 
         # --- сцена боя: послойно на world ---
         # Один быстрый блит готовой статики (фон+арена+виньетка), затем динамика.
@@ -747,6 +971,13 @@ class Game:
             elif self.state == WAVE_CLEAR:
                 self.upgrade_cards = ui.draw_upgrade_cards(
                     self.screen, self.fonts, self.upgrade_choices)
+        elif self.state == NET_PLAY:
+            ui.draw_hud(self.screen, self.fonts, self.top1, self.top2,
+                        1, [0, 0], "2p")
+            local = self.top1 if self.is_host else self.top2
+            self.dash_rect = ui.draw_dash_button(self.screen, self.fonts, local)
+            if self.net_phase == "ko":
+                self._draw_net_ko()
         else:
             ui.draw_hud(self.screen, self.fonts, self.top1, self.top2,
                         self.round_no, self.score, self.mode)
@@ -780,6 +1011,18 @@ class Game:
         ui.draw_text(self.screen, self.fonts["mid"],
                      f"{self.round_winner} побеждает в раунде!", C.WHITE,
                      center=(C.SCREEN_W // 2, C.SCREEN_H // 2 + 40))
+
+    def _draw_net_ko(self):
+        cx, cy = C.SCREEN_W // 2, C.SCREEN_H // 2 - 40
+        for col, off in (((0, 0, 0), 4), (C.RED, 0)):
+            img = self._ko_font.render("K.O.", True, col)
+            self.screen.blit(img, img.get_rect(center=(cx + off, cy + off)))
+        ui.draw_text(self.screen, self.fonts["mid"],
+                     f"{self.net_winner} победил!", C.WHITE,
+                     center=(C.SCREEN_W // 2, C.SCREEN_H // 2 + 40))
+        hint = "Тапни — реванш" if self.is_host else "Ждём хоста…"
+        ui.draw_text(self.screen, self.fonts["tiny"], hint, C.GREY,
+                     center=(C.SCREEN_W // 2, C.SCREEN_H // 2 + 95))
 
     # --- главный цикл -----------------------------------------------------
     def run(self):
