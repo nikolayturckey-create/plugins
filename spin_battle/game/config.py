@@ -28,27 +28,46 @@ P1_COLOR = (90, 170, 255)
 P2_COLOR = (255, 120, 110)
 
 # --- Формы ----------------------------------------------------------------
-# damage_mult  — насколько больно бьёт по чужой раскрутке.
-# friction     — трение/убыль скорости (куб «цепляется», шар скользит).
-# drain        — естественная убыль раскрутки в секунду.
+# damage_mult       — насколько больно бьёт по чужой раскрутке.
+# speed_damage_mult — дополнительный бонус к урону на высокой скорости.
+# friction          — трение/убыль скорости (куб «цепляется», шар скользит).
+# drain             — естественная убыль раскрутки в секунду.
 SHAPES = {
     "cube": {
         "name": "Куб",
         "damage_mult": 1.35,
+        "speed_damage_mult": 1.0,
         "friction": 0.55,
         "drain": 5.5,
     },
     "sphere": {
         "name": "Шар",
         "damage_mult": 0.85,
+        "speed_damage_mult": 0.8,
         "friction": 0.28,
         "drain": 3.2,
+    },
+    "blade": {
+        "name": "Лезвие",
+        "damage_mult": 1.08,
+        "speed_damage_mult": 1.75,
+        "friction": 0.42,
+        "drain": 4.7,
+    },
+    "disc": {
+        "name": "Диск",
+        "damage_mult": 1.0,
+        "speed_damage_mult": 1.15,
+        "friction": 0.22,
+        "drain": 2.9,
     },
 }
 
 # --- Материалы ------------------------------------------------------------
-# toughness    — делитель входящего урона (выше = прочнее).
-# restitution  — упругость отскока при столкновении (резина прыгучая).
+# toughness       — делитель входящего урона (выше = прочнее).
+# restitution     — упругость отскока при столкновении (резина прыгучая).
+# speed_mult      — множитель стартовой скорости и буста.
+# obstacle_drain_mult — множитель потерь от бамперов-препятствий.
 MATERIALS = {
     "metal": {
         "name": "Металл",
@@ -56,6 +75,8 @@ MATERIALS = {
         "toughness": 1.35,
         "restitution": 0.75,
         "mass_mult": 1.25,
+        "speed_mult": 0.95,
+        "obstacle_drain_mult": 0.9,
     },
     "wood": {
         "name": "Дерево",
@@ -63,6 +84,8 @@ MATERIALS = {
         "toughness": 1.0,
         "restitution": 0.6,
         "mass_mult": 1.0,
+        "speed_mult": 1.0,
+        "obstacle_drain_mult": 1.0,
     },
     "rubber": {
         "name": "Резина",
@@ -70,6 +93,26 @@ MATERIALS = {
         "toughness": 1.15,
         "restitution": 1.05,
         "mass_mult": 0.85,
+        "speed_mult": 1.08,
+        "obstacle_drain_mult": 0.75,
+    },
+    "titanium": {
+        "name": "Титан",
+        "color": (150, 210, 230),
+        "toughness": 1.6,
+        "restitution": 0.82,
+        "mass_mult": 1.12,
+        "speed_mult": 1.03,
+        "obstacle_drain_mult": 0.65,
+    },
+    "glass": {
+        "name": "Стекло",
+        "color": (150, 235, 255),
+        "toughness": 0.72,
+        "restitution": 1.22,
+        "mass_mult": 0.72,
+        "speed_mult": 1.18,
+        "obstacle_drain_mult": 1.35,
     },
 }
 
@@ -101,8 +144,10 @@ def agility(weight: float) -> float:
 
 
 # --- Столкновения и урон --------------------------------------------------
-HIT_DAMAGE_K = 0.10          # урон = K * impulse * формы * (1/прочность)
-WALL_DRAIN = 2.0             # потеря раскрутки об стену
+HIT_DAMAGE_K = 0.10          # базовый урон от импульса столкновения
+SPEED_DAMAGE_BASE = 130.0    # скорость, с которой начинается бонус к урону
+SPEED_DAMAGE_SCALE = 420.0   # чем меньше, тем быстрее растёт бонус от скорости
+SPEED_DAMAGE_MAX = 1.9       # максимум: +190% к урону от скорости
 OBSTACLE_DRAIN_MIN = 3.0     # потеря об бампер (рандом в диапазоне)
 OBSTACLE_DRAIN_MAX = 8.0
 

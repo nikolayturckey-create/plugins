@@ -47,7 +47,7 @@ class ModeMenu:
     """Стартовое меню: против ИИ или два игрока."""
 
     def __init__(self):
-        self.options = [("ai", "Против ИИ"), ("2p", "Два игрока")]
+        self.options = [("ai", "Против ИИ"), ("2p", "Два игрока локально")]
         self.index = 0
         self.buttons = []  # [(rect, value)]
 
@@ -186,9 +186,11 @@ class TopBuilder:
         stats = [
             f"Раскрутка: {int(preview.max_stamina)}",
             f"Урон формы: x{preview.damage_mult}",
-            f"Трение: {preview.friction}",
+            f"Бонус скорости: x{preview.speed_damage_mult}",
+            f"Скорость: x{preview.speed_mult}",
             f"Прочность: x{preview.toughness}",
             f"Отскок: x{preview.restitution}",
+            f"Бамперы: x{preview.obstacle_drain_mult}",
             f"Манёвр: x{round(preview.agility, 2)}",
         ]
         for i, s in enumerate(stats):

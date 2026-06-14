@@ -42,10 +42,13 @@ class Top:
         self.stamina = self.max_stamina
 
         self.damage_mult = sh["damage_mult"]
+        self.speed_damage_mult = sh.get("speed_damage_mult", 1.0)
         self.friction = sh["friction"]
         self.drain = sh["drain"]
         self.toughness = mat["toughness"]
         self.restitution = mat["restitution"]
+        self.speed_mult = mat.get("speed_mult", 1.0)
+        self.obstacle_drain_mult = mat.get("obstacle_drain_mult", 1.0)
         self.agility = C.agility(self.weight)
 
         # Состояние боя.
@@ -64,7 +67,8 @@ class Top:
         self.pos = [float(x), float(y)]
         dx, dy = toward[0] - x, toward[1] - y
         d = math.hypot(dx, dy) or 1.0
-        self.vel = [dx / d * C.START_SPEED, dy / d * C.START_SPEED]
+        launch_speed = C.START_SPEED * self.speed_mult
+        self.vel = [dx / d * launch_speed, dy / d * launch_speed]
         self.stamina = self.max_stamina
         self.alive = True
         self.special_cd = 0.0
@@ -78,8 +82,9 @@ class Top:
         dx = target.pos[0] - self.pos[0]
         dy = target.pos[1] - self.pos[1]
         d = math.hypot(dx, dy) or 1.0
-        self.vel[0] = dx / d * C.SPECIAL_BURST_SPEED
-        self.vel[1] = dy / d * C.SPECIAL_BURST_SPEED
+        burst_speed = C.SPECIAL_BURST_SPEED * self.speed_mult
+        self.vel[0] = dx / d * burst_speed
+        self.vel[1] = dy / d * burst_speed
         self.special_cd = C.SPECIAL_COOLDOWN
         self.boosting = 0.6  # окно, в течение которого удар считается спецом
         return True
@@ -169,13 +174,28 @@ class Top:
             ex = x + math.cos(self.angle) * r
             ey = y + math.sin(self.angle) * r
             pygame.draw.line(surf, C.WHITE, (x, y), (ex, ey), 3)
-        else:  # cube — вращающийся квадрат
+        elif self.shape == "cube":
             pts = []
             for k in range(4):
                 a = self.angle + k * (math.pi / 2) + math.pi / 4
                 pts.append((x + math.cos(a) * r, y + math.sin(a) * r))
             pygame.draw.polygon(surf, base, pts)
             pygame.draw.polygon(surf, C.WHITE, pts, 2)
+        elif self.shape == "blade":
+            pts = []
+            for k in range(8):
+                a = self.angle + k * (math.tau / 8)
+                rr = r * (1.25 if k % 2 == 0 else 0.65)
+                pts.append((x + math.cos(a) * rr, y + math.sin(a) * rr))
+            pygame.draw.polygon(surf, base, pts)
+            pygame.draw.polygon(surf, C.WHITE, pts, 2)
+        else:  # disc — широкий стабильный диск
+            pygame.draw.circle(surf, base, (x, y), r)
+            pygame.draw.circle(surf, C.WHITE, (x, y), r, 2)
+            pygame.draw.circle(surf, C.WHITE, (x, y), max(4, r // 2), 1)
+            ex = x + math.cos(self.angle) * r
+            ey = y + math.sin(self.angle) * r
+            pygame.draw.line(surf, C.YELLOW, (x, y), (ex, ey), 3)
 
         # Кольцо «спецудар готов».
         if self.special_ready:
