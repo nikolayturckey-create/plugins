@@ -69,9 +69,16 @@ class Top:
         self.angle = 0.0
         self.spin_dir = random.choice((-1, 1))
         self.special_cd = 0.0
+        self.special_cd_max = C.SPECIAL_COOLDOWN
         self.boosting = 0.0
+        self.hit_cd = 0.0          # неуязвимость после удара
         self.alive = True
         self.flash = 0.0
+
+        # Управление/выживание.
+        self.player = False        # True у волчка игрока (рулим вручную)
+        self.thrust = [0.0, 0.0]   # вектор тяги от ввода игрока
+        self.lifesteal = 0.0       # лечение за убийство (прокачка)
 
         # Визуал/анимация.
         self.trail = deque(maxlen=C.TRAIL_LEN)
@@ -95,7 +102,9 @@ class Top:
         self.alive = True
         self.special_cd = 0.0
         self.boosting = 0.0
+        self.hit_cd = 0.0
         self.flash = 0.0
+        self.thrust = [0.0, 0.0]
         self.trail.clear()
         self.impact_scale = 1.0
         self.dying = False
@@ -111,7 +120,7 @@ class Top:
         d = math.hypot(dx, dy) or 1.0
         self.vel[0] = dx / d * C.SPECIAL_BURST_SPEED
         self.vel[1] = dy / d * C.SPECIAL_BURST_SPEED
-        self.special_cd = C.SPECIAL_COOLDOWN
+        self.special_cd = self.special_cd_max
         self.boosting = 0.6
         return True
 
@@ -149,16 +158,21 @@ class Top:
         if not self.alive:
             return
 
-        ang = random.uniform(0, math.tau)
-        wf = C.WANDER_FORCE * self.agility
-        self.vel[0] += math.cos(ang) * wf * dt
-        self.vel[1] += math.sin(ang) * wf * dt
+        if self.player:
+            # Управление игроком: тяга в сторону ввода (без авто-рысканья).
+            self.vel[0] += self.thrust[0] * dt
+            self.vel[1] += self.thrust[1] * dt
+        else:
+            ang = random.uniform(0, math.tau)
+            wf = C.WANDER_FORCE * self.agility
+            self.vel[0] += math.cos(ang) * wf * dt
+            self.vel[1] += math.sin(ang) * wf * dt
 
-        cx, cy = arena_center
-        dx, dy = cx - self.pos[0], cy - self.pos[1]
-        d = math.hypot(dx, dy) or 1.0
-        self.vel[0] += dx / d * C.CENTER_PULL * dt
-        self.vel[1] += dy / d * C.CENTER_PULL * dt
+            cx, cy = arena_center
+            dx, dy = cx - self.pos[0], cy - self.pos[1]
+            d = math.hypot(dx, dy) or 1.0
+            self.vel[0] += dx / d * C.CENTER_PULL * dt
+            self.vel[1] += dy / d * C.CENTER_PULL * dt
 
         fr = max(0.0, 1.0 - self.friction * dt)
         self.vel[0] *= fr
@@ -184,6 +198,7 @@ class Top:
 
         self.special_cd = max(0.0, self.special_cd - dt)
         self.boosting = max(0.0, self.boosting - dt)
+        self.hit_cd = max(0.0, self.hit_cd - dt)
         self.flash = max(0.0, self.flash - dt * 4)
         self.impact_scale += (1.0 - self.impact_scale) * min(1.0, dt * 9)
         self.wobble_phase += dt * 16

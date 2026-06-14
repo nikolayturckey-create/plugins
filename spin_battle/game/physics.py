@@ -19,6 +19,9 @@ def _apply_hit_damage(attacker, target, impulse: float) -> float:
     Урон ограничен долей от запаса раскрутки цели (потолок за удар), поэтому
     ни один удар не «ваншотит» — бой идёт на много обменов.
     """
+    # Неуязвимость после недавнего удара — удары дискретны, без «гринда» в контакте.
+    if getattr(target, "hit_cd", 0.0) > 0.0:
+        return 0.0
     special = attacker.boosting > 0
     mult = attacker.damage_mult
     if special:
@@ -27,6 +30,7 @@ def _apply_hit_damage(attacker, target, impulse: float) -> float:
     cap = (C.SPECIAL_HIT_CAP if special else C.HIT_CAP) * target.max_stamina
     dmg = min(raw, cap)
     target.stamina -= dmg
+    target.hit_cd = C.HIT_IFRAME
     if target.stamina <= 0:
         target.stamina = 0
         target.alive = False

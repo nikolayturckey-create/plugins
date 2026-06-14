@@ -47,7 +47,11 @@ class ModeMenu:
     """Стартовое меню: против ИИ или два игрока."""
 
     def __init__(self):
-        self.options = [("ai", "Против ИИ"), ("2p", "Два игрока")]
+        self.options = [
+            ("survival", "Выживание"),
+            ("ai", "1 на 1 (ИИ)"),
+            ("2p", "Два игрока"),
+        ]
         self.index = 0
         self.buttons = []  # [(rect, value)]
 
@@ -277,3 +281,76 @@ def draw_match_over(surf, fonts, winner_name, score):
               center=(C.SCREEN_W // 2, C.SCREEN_H // 2 + 50))
     draw_text(surf, fonts["tiny"], "Тапни / Enter — новый матч,  Esc — выход",
               C.GREY, center=(C.SCREEN_W // 2, C.SCREEN_H // 2 + 120))
+
+
+# --- Режим «Выживание» -----------------------------------------------------
+
+def draw_survival_hud(surf, fonts, player, wave, score, enemies_left, mode):
+    # Полоска раскрутки игрока.
+    _draw_stamina_bar(surf, fonts, player, 40, 40, 360)
+    draw_text(surf, fonts["mid"], f"Волна {wave}", C.WHITE,
+              center=(C.SCREEN_W // 2, 36))
+    draw_text(surf, fonts["small"], f"Очки: {score}", C.YELLOW,
+              center=(C.SCREEN_W // 2, 74))
+    img = fonts["small"].render(f"Врагов: {enemies_left}", True, C.RED)
+    surf.blit(img, (C.SCREEN_W - 40 - img.get_width(), 40))
+    # Подсказка управления.
+    hint = "Веди пальцем — двигаться, кнопка — рывок"
+    draw_text(surf, fonts["tiny"], hint, C.GREY,
+              center=(C.SCREEN_W // 2, C.SCREEN_H - 24))
+
+
+def draw_dash_button(surf, fonts, player):
+    """Кнопка рывка/спецудара. Возвращает rect."""
+    bw, bh = 170, 66
+    rect = pygame.Rect(C.SCREEN_W - bw - 30, C.SCREEN_H - bh - 26, bw, bh)
+    _draw_button(surf, fonts["small"], rect, "РЫВОК", ready=player.special_ready)
+    return rect
+
+
+def draw_upgrade_cards(surf, fonts, upgrades):
+    """Карточки прокачки между волнами. Возвращает [(rect, index)]."""
+    overlay = pygame.Surface((C.SCREEN_W, C.SCREEN_H))
+    overlay.fill(C.BLACK)
+    overlay.set_alpha(190)
+    surf.blit(overlay, (0, 0))
+    draw_text(surf, fonts["big"], "ВОЛНА ОЧИЩЕНА!", C.GREEN,
+              center=(C.SCREEN_W // 2, 120))
+    draw_text(surf, fonts["small"], "Выбери прокачку (тап или 1/2/3)", C.WHITE,
+              center=(C.SCREEN_W // 2, 178))
+    cards = []
+    n = len(upgrades)
+    cw, ch = 250, 230
+    gap = 30
+    total = n * cw + (n - 1) * gap
+    x0 = (C.SCREEN_W - total) // 2
+    y = 250
+    for i, up in enumerate(upgrades):
+        rect = pygame.Rect(x0 + i * (cw + gap), y, cw, ch)
+        pygame.draw.rect(surf, C.DARK, rect, border_radius=14)
+        pygame.draw.rect(surf, C.YELLOW, rect, 3, border_radius=14)
+        draw_text(surf, fonts["small"], f"{i + 1}", C.YELLOW,
+                  center=(rect.centerx, rect.top + 34))
+        draw_text(surf, fonts["small"], up["name"], C.WHITE,
+                  center=(rect.centerx, rect.top + 92))
+        # перенос описания на 2 строки
+        words = up["desc"].split()
+        mid = len(words) // 2 or 1
+        for li, line in enumerate((" ".join(words[:mid]), " ".join(words[mid:]))):
+            if line:
+                draw_text(surf, fonts["tiny"], line, C.GREY,
+                          center=(rect.centerx, rect.top + 140 + li * 26))
+        cards.append((rect, i))
+    return cards
+
+
+def draw_game_over(surf, fonts, score, wave, kills):
+    surf.fill(C.BLACK)
+    draw_text(surf, fonts["big"], "ИГРА ОКОНЧЕНА", C.RED,
+              center=(C.SCREEN_W // 2, C.SCREEN_H // 2 - 110))
+    draw_text(surf, fonts["mid"], f"Очки: {score}", C.YELLOW,
+              center=(C.SCREEN_W // 2, C.SCREEN_H // 2 - 30))
+    draw_text(surf, fonts["small"], f"Волна {wave}   •   убито {kills}", C.WHITE,
+              center=(C.SCREEN_W // 2, C.SCREEN_H // 2 + 30))
+    draw_text(surf, fonts["tiny"], "Тапни / Enter — заново,  Esc — в меню",
+              C.GREY, center=(C.SCREEN_W // 2, C.SCREEN_H // 2 + 110))

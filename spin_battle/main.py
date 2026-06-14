@@ -30,7 +30,8 @@ from game.sound import SoundManager
 from game.top import Top
 
 # Состояния автомата.
-MODE, BUILD, COUNTDOWN, BATTLE, KO, ROUND_OVER, MATCH_OVER = range(7)
+(MODE, BUILD, COUNTDOWN, BATTLE, KO, ROUND_OVER, MATCH_OVER,
+ SURVIVAL, WAVE_CLEAR, GAME_OVER) = range(10)
 
 
 def random_top(color, name) -> Top:
@@ -42,6 +43,55 @@ def random_top(color, name) -> Top:
         color=color,
         name=name,
     )
+
+
+# --- Прокачки режима «Выживание» ------------------------------------------
+def _u_armor(p):
+    p.max_stamina += 50
+    p.stamina = min(p.max_stamina, p.stamina + 50)
+
+
+def _u_blades(p):
+    p.damage_mult *= 1.35
+
+
+def _u_turbo(p):
+    p.max_speed *= 1.18
+
+
+def _u_agile(p):
+    p.special_cd_max = max(1.0, p.special_cd_max - 0.7)
+
+
+def _u_repair(p):
+    p.stamina = p.max_stamina
+
+
+def _u_vamp(p):
+    p.lifesteal += 16
+
+
+def _u_spring(p):
+    p.bounce_gain += 0.15
+    p.max_speed *= 1.06
+
+
+def _u_tough(p):
+    p.toughness *= 1.3
+
+
+UPGRADES = [
+    {"name": "Прочный корпус", "desc": "+50 к раскрутке и подлечиться",
+     "apply": _u_armor},
+    {"name": "Острые лезвия", "desc": "урон по врагам +35%", "apply": _u_blades},
+    {"name": "Турбина", "desc": "потолок скорости +18%", "apply": _u_turbo},
+    {"name": "Резвый рывок", "desc": "кулдаун рывка короче", "apply": _u_agile},
+    {"name": "Ремонт", "desc": "полностью восстановить раскрутку",
+     "apply": _u_repair},
+    {"name": "Вампиризм", "desc": "лечение за каждое убийство", "apply": _u_vamp},
+    {"name": "Пружина", "desc": "сильнее отскок и чуть быстрее", "apply": _u_spring},
+    {"name": "Закалка", "desc": "прочность +30% (меньше урона)", "apply": _u_tough},
+]
 
 
 class Game:
@@ -90,17 +140,32 @@ class Game:
         self.boost_buttons = {"p1": None, "p2": None}
         self.time_scale = 1.0
         self.freeze = 0.0
+        # Выживание
+        self.player = None
+        self.enemies = []
+        self.wave = 0
+        self.kills = 0
+        self.survival_score = 0.0
+        self.upgrade_choices = []
+        self.upgrade_cards = []
+        self.dash_rect = None
+        self.pointer_down = False
+        self.pointer_pos = (0, 0)
         self.sound.stop_spin()
 
     def start_builders(self, mode):
         self.mode = mode
-        self.builders = [ui.TopBuilder("Игрок 1", C.P1_COLOR)]
+        label = "Ты" if mode == "survival" else "Игрок 1"
+        self.builders = [ui.TopBuilder(label, C.P1_COLOR)]
         if mode == "2p":
             self.builders.append(ui.TopBuilder("Игрок 2", C.P2_COLOR))
         self.build_index = 0
         self.state = BUILD
 
     def begin_match(self):
+        if self.mode == "survival":
+            self.begin_survival()
+            return
         self.top1 = self.builders[0].build()
         if self.mode == "2p":
             self.top2 = self.builders[1].build()
@@ -109,6 +174,185 @@ class Game:
         self.score = [0, 0]
         self.round_no = 0
         self.start_round()
+
+    # --- Режим «Выживание» -----------------------------------------------
+    def begin_survival(self):
+        self.player = self.builders[0].build()
+        self.player.player = True
+        self.player.name = "Ты"
+        # Бонусы выживаемости игрока (без них слишком жёстко).
+        self.player.toughness *= 1.7
+        self.player.max_stamina *= 1.5
+        self.player.stamina = self.player.max_stamina
+        self.enemies = []
+        self.wave = 0
+        self.kills = 0
+        self.survival_score = 0.0
+        self.arena.generate_obstacles(random.randint(2, 4))
+        cx, cy = self.arena.center
+        self.player.place(cx, cy, toward=(cx, cy - 1))
+        self.player.vel = [0.0, 0.0]
+        self.effects = Effects()
+        self.start_wave()
+        self.countdown = 2.2
+        self._cd_int = None
+        self.time_scale = 1.0
+        self.freeze = 0.0
+        self.state = COUNTDOWN
+
+    def start_wave(self):
+        self.wave += 1
+        cx, cy = self.arena.center
+        n = min(8, C.WAVE_BASE_ENEMIES + (self.wave - 1) * C.WAVE_ENEMY_PER_WAVE)
+        tough = 1.0 + self.wave * C.WAVE_TOUGH_PER_WAVE
+        for _ in range(n):
+            e = random_top(C.ENEMY_COLOR, "Враг")
+            ang = random.uniform(0, math.tau)
+            r = self.arena.radius * 0.82
+            e.place(cx + math.cos(ang) * r, cy + math.sin(ang) * r,
+                    toward=self.arena.center)
+            e.max_stamina *= C.ENEMY_STAMINA_MULT * tough
+            e.stamina = e.max_stamina
+            e.damage_mult *= (1.0 + self.wave * 0.05)
+            self.enemies.append(e)
+
+    def _scene_tops(self):
+        if self.mode == "survival":
+            return ([self.player] + self.enemies) if self.player else []
+        return [self.top1, self.top2]
+
+    def nearest_enemy(self):
+        if not self.enemies:
+            return None
+        px, py = self.player.pos
+        return min(self.enemies,
+                   key=lambda e: (e.pos[0] - px) ** 2 + (e.pos[1] - py) ** 2)
+
+    def _steer_toward(self, t, target, force, dt):
+        dx, dy = target[0] - t.pos[0], target[1] - t.pos[1]
+        d = math.hypot(dx, dy) or 1.0
+        t.vel[0] += dx / d * force * dt
+        t.vel[1] += dy / d * force * dt
+
+    def _apply_player_input(self):
+        p = self.player
+        keys = pygame.key.get_pressed()
+        kx = (keys[pygame.K_d] or keys[pygame.K_RIGHT]) - \
+             (keys[pygame.K_a] or keys[pygame.K_LEFT])
+        ky = (keys[pygame.K_s] or keys[pygame.K_DOWN]) - \
+             (keys[pygame.K_w] or keys[pygame.K_UP])
+        dx, dy = 0.0, 0.0
+        if kx or ky:
+            m = math.hypot(kx, ky)
+            dx, dy = kx / m, ky / m
+        elif self.pointer_down and not (
+                self.dash_rect and self.dash_rect.collidepoint(self.pointer_pos)):
+            vx = self.pointer_pos[0] - p.pos[0]
+            vy = self.pointer_pos[1] - p.pos[1]
+            d = math.hypot(vx, vy)
+            if d > 10:
+                dx, dy = vx / d, vy / d
+        p.thrust = [dx * C.PLAYER_THRUST, dy * C.PLAYER_THRUST]
+
+    def _player_dash(self):
+        p = self.player
+        if not p.special_ready:
+            return
+        tgt = self.nearest_enemy()
+        if tgt:
+            if p.boost(tgt):
+                self.sound.play("special", 0.6)
+        else:
+            sp = math.hypot(*p.vel) or 1.0
+            p.vel = [p.vel[0] / sp * C.SPECIAL_BURST_SPEED,
+                     p.vel[1] / sp * C.SPECIAL_BURST_SPEED]
+            p.special_cd = p.special_cd_max
+            p.boosting = 0.6
+            self.sound.play("special", 0.6)
+
+    def update_survival(self, dt):
+        p = self.player
+        self._apply_player_input()
+        p.update(dt, self.arena.center)
+        if physics.resolve_wall(p, self.arena.center, self.arena.radius):
+            self._bounce_fx(p, (p.pos[0], p.pos[1]), wall=True)
+        for obs in self.arena.obstacles:
+            pt = physics.resolve_obstacle(p, obs)
+            if pt:
+                self._bounce_fx(p, pt, wall=False)
+
+        for e in self.enemies:
+            self._steer_toward(e, p.pos, C.ENEMY_CHASE, dt)
+            if e.special_ready and random.random() < 0.012:
+                e.boost(p)
+            e.update(dt, self.arena.center)
+            physics.resolve_wall(e, self.arena.center, self.arena.radius)
+            for obs in self.arena.obstacles:
+                physics.resolve_obstacle(e, obs)
+
+        # столкновения игрок-враг
+        for e in self.enemies:
+            hit = physics.resolve_top_collision(p, e)
+            if hit:
+                p.squash()
+                e.squash()
+                freeze, _z = self.effects.hit(hit["point"], hit["impulse"],
+                                              hit["special"])
+                self.freeze = max(self.freeze, freeze)
+                self.sound.play("hit", min(1.0, 0.4 + hit["impulse"] / 900))
+        # враги между собой — только расталкивание
+        m = len(self.enemies)
+        for i in range(m):
+            for j in range(i + 1, m):
+                physics.resolve_top_collision(self.enemies[i], self.enemies[j],
+                                              allow_special=False)
+
+        # обработка смертей врагов
+        alive = []
+        for e in self.enemies:
+            if e.alive:
+                alive.append(e)
+            else:
+                self.effects.debris_burst((e.pos[0], e.pos[1]), e.color, 16)
+                self.effects.shockwave((e.pos[0], e.pos[1]), 500, C.STEEL_GLINT)
+                self.effects.shake = max(self.effects.shake, 12)
+                self.sound.play("hit", 0.7)
+                self.kills += 1
+                self.survival_score += C.SCORE_PER_KILL * self.wave
+                if p.lifesteal:
+                    p.stamina = min(p.max_stamina, p.stamina + p.lifesteal)
+        self.enemies = alive
+
+        self.arena.update(dt)
+        self.effects.update(dt)
+
+        if not p.alive:
+            self.game_over()
+            return
+        self.survival_score += C.SCORE_PER_SEC * dt
+        if not self.enemies:
+            self.offer_upgrades()
+
+    def offer_upgrades(self):
+        self.upgrade_choices = random.sample(UPGRADES, 3)
+        self.state = WAVE_CLEAR
+        self.sound.play("start", 0.5)
+
+    def pick_upgrade(self, i):
+        if 0 <= i < len(self.upgrade_choices):
+            self.upgrade_choices[i]["apply"](self.player)
+            self.start_wave()
+            self.state = SURVIVAL
+
+    def game_over(self):
+        self.effects.debris_burst((self.player.pos[0], self.player.pos[1]),
+                                  self.player.color, 24)
+        self.effects.shake = max(self.effects.shake, 26)
+        self.effects.flash = min(1.0, self.effects.flash + 0.5)
+        self.sound.stop_spin()
+        self.sound.play("ko", 0.9)
+        self.final_score = int(self.survival_score)
+        self.state = GAME_OVER
 
     def start_round(self):
         self.round_no += 1
@@ -133,7 +377,16 @@ class Game:
         if e.type == pygame.QUIT:
             return False
         if e.type == pygame.MOUSEBUTTONDOWN:
-            self.handle_pointer(self.map_pointer(e.pos))
+            self.pointer_down = True
+            self.pointer_pos = self.map_pointer(e.pos)
+            self.handle_pointer(self.pointer_pos)
+            return True
+        if e.type == pygame.MOUSEMOTION:
+            if self.pointer_down:
+                self.pointer_pos = self.map_pointer(e.pos)
+            return True
+        if e.type == pygame.MOUSEBUTTONUP:
+            self.pointer_down = False
             return True
         if e.type != pygame.KEYDOWN:
             return True
@@ -160,6 +413,19 @@ class Game:
                 self._try_boost(self.top1, self.top2)
             elif e.key == pygame.K_RETURN and self.mode == "2p":
                 self._try_boost(self.top2, self.top1)
+        elif self.state == SURVIVAL:
+            if e.key in (pygame.K_SPACE, pygame.K_RETURN):
+                self._player_dash()
+        elif self.state == WAVE_CLEAR:
+            if e.key in (pygame.K_1, pygame.K_KP1):
+                self.pick_upgrade(0)
+            elif e.key in (pygame.K_2, pygame.K_KP2):
+                self.pick_upgrade(1)
+            elif e.key in (pygame.K_3, pygame.K_KP3):
+                self.pick_upgrade(2)
+        elif self.state == GAME_OVER:
+            if e.key == pygame.K_RETURN:
+                self.begin_survival()
         elif self.state == ROUND_OVER:
             if e.key == pygame.K_RETURN:
                 self.start_round()
@@ -188,6 +454,17 @@ class Game:
             elif self.boost_buttons.get("p2") and \
                     self.boost_buttons["p2"].collidepoint(pos):
                 self._try_boost(self.top2, self.top1)
+        elif self.state == SURVIVAL:
+            if self.dash_rect and self.dash_rect.collidepoint(pos):
+                self._player_dash()
+            # иначе — это начало «ведения» (движение разбирается в update)
+        elif self.state == WAVE_CLEAR:
+            for rect, i in self.upgrade_cards:
+                if rect.collidepoint(pos):
+                    self.pick_upgrade(i)
+                    break
+        elif self.state == GAME_OVER:
+            self.begin_survival()
         elif self.state == ROUND_OVER:
             self.start_round()
         elif self.state == MATCH_OVER:
@@ -332,18 +609,20 @@ class Game:
                 self._cd_int = cur
                 if cur > 0:
                     self.sound.play("beep", 0.5)
-            for t in (self.top1, self.top2):
+            for t in self._scene_tops():
                 t.angle += real_dt * 12
             self.arena.update(real_dt)
             self.effects.update(real_dt)
             if self.countdown <= 0:
-                self.state = BATTLE
+                self.state = SURVIVAL if self.mode == "survival" else BATTLE
                 self.sound.play("start", 0.6)
                 self.sound.start_spin()
         elif self.state == BATTLE:
             self.update_battle(real_dt)
         elif self.state == KO:
             self.update_ko(real_dt)
+        elif self.state == SURVIVAL:
+            self.update_survival(real_dt)
         else:
             self.arena.update(real_dt)
             self.effects.update(real_dt)
@@ -397,14 +676,19 @@ class Game:
                                self.match_winner, self.score)
             self.present()
             return
+        if self.state == GAME_OVER:
+            ui.draw_game_over(self.screen, self.fonts, self.final_score,
+                              self.wave, self.kills)
+            self.present()
+            return
 
         # --- сцена боя: послойно на world ---
         self.world.blit(self._bg, (0, 0))
         self.arena.draw(self.world, pulse=self.effects.pulse)
         self.effects.draw_smoke(self.world)
         self.effects.draw_waves(self.world)
-        self.top1.draw(self.world)
-        self.top2.draw(self.world)
+        for t in self._scene_tops():
+            t.draw(self.world)
         self.effects.draw_front(self.world)
         self.effects.draw_texts(self.world)
 
@@ -423,22 +707,33 @@ class Game:
         self.arena.draw_vignette(self.screen)
         self.effects.draw_flash(self.screen)
 
-        ui.draw_hud(self.screen, self.fonts, self.top1, self.top2,
-                    self.round_no, self.score, self.mode)
+        if self.mode == "survival":
+            ui.draw_survival_hud(self.screen, self.fonts, self.player,
+                                 self.wave, int(self.survival_score),
+                                 len(self.enemies), self.mode)
+            if self.state == SURVIVAL:
+                self.dash_rect = ui.draw_dash_button(
+                    self.screen, self.fonts, self.player)
+            elif self.state == WAVE_CLEAR:
+                self.upgrade_cards = ui.draw_upgrade_cards(
+                    self.screen, self.fonts, self.upgrade_choices)
+        else:
+            ui.draw_hud(self.screen, self.fonts, self.top1, self.top2,
+                        self.round_no, self.score, self.mode)
+            if self.state == BATTLE:
+                self.boost_buttons = ui.draw_boost_buttons(
+                    self.screen, self.fonts, self.mode, self.top1, self.top2)
+            elif self.state == KO:
+                self._draw_ko_banner()
+            elif self.state == ROUND_OVER:
+                ui.draw_round_over(self.screen, self.fonts,
+                                   self.round_winner, self.score)
 
-        if self.state == BATTLE:
-            self.boost_buttons = ui.draw_boost_buttons(
-                self.screen, self.fonts, self.mode, self.top1, self.top2)
-        elif self.state == COUNTDOWN:
+        if self.state == COUNTDOWN:
             n = max(1, int(self.countdown) + 1)
             ui.draw_text(self.screen, self.fonts["big"],
                          "В БОЙ!" if self.countdown <= 0.6 else str(n),
                          C.YELLOW, center=(C.SCREEN_W // 2, C.SCREEN_H // 2))
-        elif self.state == KO:
-            self._draw_ko_banner()
-        elif self.state == ROUND_OVER:
-            ui.draw_round_over(self.screen, self.fonts,
-                               self.round_winner, self.score)
         self.present()
 
     def _draw_ko_banner(self):
@@ -472,12 +767,14 @@ class Game:
 
 
 def smoke_test(frames: int = 1500):
-    """Headless-прогон: меню -> бой ИИ vs ИИ -> K.O., без реального окна."""
+    """Headless-прогон обоих режимов без реального окна."""
+    dt = 1.0 / C.FPS
+
+    # 1) Классический бой ИИ vs ИИ -> K.O.
     game = Game()
     game.start_builders("ai")
     game.builders[0].done = True
     game.begin_match()
-    dt = 1.0 / C.FPS
     saw_ko = False
     for i in range(frames):
         if game.state == KO:
@@ -487,12 +784,38 @@ def smoke_test(frames: int = 1500):
         game.update(dt)
         game.draw()
         if game.state == ROUND_OVER:
-            game.start_round()      # авто-переход к следующему раунду
+            game.start_round()
         if game.state == MATCH_OVER:
             break
+    print(f"battle OK: состояние={game.state}, счёт={game.score}, KO={saw_ko}")
     pygame.quit()
-    print(f"smoke-test OK: состояние={game.state}, счёт={game.score}, "
-          f"видели_KO={saw_ko}")
+
+    # 2) Выживание: рулим к врагам, бьём, берём прокачку.
+    g = Game()
+    g.start_builders("survival")
+    g.builders[0].done = True
+    g.begin_match()
+    saw_play = saw_clear = False
+    for i in range(3000):
+        if g.state == SURVIVAL:
+            saw_play = True
+            e = g.nearest_enemy()
+            if e:
+                g.pointer_down = True
+                g.pointer_pos = (e.pos[0], e.pos[1])
+            if i % 50 == 0:
+                g._player_dash()
+        elif g.state == WAVE_CLEAR:
+            saw_clear = True
+            g.pick_upgrade(0)
+        g.update(dt)
+        g.draw()
+        if g.state == GAME_OVER:
+            break
+    print(f"survival OK: состояние={g.state}, волна={g.wave}, убито={g.kills}, "
+          f"бой={saw_play}, прокачка={saw_clear}")
+    pygame.quit()
+    print("smoke-test OK")
 
 
 def main():
