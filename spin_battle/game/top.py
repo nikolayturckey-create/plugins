@@ -91,6 +91,13 @@ class Top:
 
         # Детальный спрайт волчка пекём один раз, потом крутим/масштабируем.
         self._sprite = self._bake_sprite()
+        # Пред-рассчитанные повороты — чтобы не вызывать rotozoom каждый кадр
+        # (дорого на телефоне). В кадре просто берём ближайший кадр поворота.
+        self._nframes = 20
+        self._frames = [
+            pygame.transform.rotate(self._sprite, -k * 360.0 / self._nframes)
+            for k in range(self._nframes)
+        ]
 
     # --- размещение перед раундом ----------------------------------------
     def place(self, x: float, y: float, toward):
@@ -339,11 +346,7 @@ class Top:
             pygame.draw.circle(aura, (*self.color, 60), (ar, ar), ar)
             surf.blit(aura, (int(x - ar), int(y - ar)))
 
-        # спин-блюр на высокой скорости
-        if C.SPIN_BLUR and self.speed > C.MAX_SPEED * 0.6:
-            blur = pygame.transform.rotozoom(self._sprite, deg + 16, scale)
-            blur.set_alpha(70)
-            surf.blit(blur, blur.get_rect(center=(int(x), int(y))))
+        # спин-блюр убран ради производительности (rotozoom дорог на телефоне)
 
         if self.boosting > 0:
             gr = int(R * 2)
@@ -351,7 +354,13 @@ class Top:
             pygame.draw.circle(glow, (*C.YELLOW, 80), (gr, gr), gr)
             surf.blit(glow, (int(x - gr), int(y - gr)))
 
-        img = pygame.transform.rotozoom(self._sprite, deg, scale)
+        # Берём ближайший пред-рассчитанный кадр поворота (без rotozoom).
+        idx = int((self.angle % math.tau) / math.tau * self._nframes) % self._nframes
+        img = self._frames[idx]
+        if scale < 0.93:   # масштабируем только в момент squash
+            w, h = img.get_size()
+            img = pygame.transform.scale(img, (max(1, int(w * scale)),
+                                               max(1, int(h * scale))))
         surf.blit(img, img.get_rect(center=(int(x), int(y))))
 
         # вспышка удара

@@ -133,6 +133,19 @@ class Arena:
                 m[2] *= -1
                 m[3] *= -1
 
+    def draw_dynamic(self, surf, pulse=0.0):
+        """Только подвижное (пульс-кольцо + пылинки). Статика — в общем «stage»."""
+        cx, cy = self.center
+        if pulse > 0.02:
+            pr = int(self.radius * (0.55 + 0.45 * pulse))
+            s = pygame.Surface((pr * 2 + 4, pr * 2 + 4), pygame.SRCALPHA)
+            pygame.draw.circle(s, (*C.ARENA_RING_HILIGHT, int(120 * pulse)),
+                               (pr + 2, pr + 2), pr, 4)
+            surf.blit(s, (cx - pr - 2, cy - pr - 2))
+        for m in self.dust:
+            pygame.draw.circle(surf, (70, 74, 84),
+                               (int(m[0]), int(m[1])), int(m[4]))
+
     def draw(self, surf, pulse=0.0):
         cx, cy = self.center
         # Статичная текстура — из кэша (быстро).

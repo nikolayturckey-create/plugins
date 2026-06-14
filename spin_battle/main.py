@@ -116,6 +116,9 @@ class Game:
         self.arena = Arena()
         self.effects = Effects()
         self._bg = self._make_background()
+        self._vig = self._make_vignette()
+        self._stage = None
+        self._build_stage()
         self._ko_font = pygame.font.SysFont("arial", 96, bold=True)
         # Тайминг «сочности».
         self.time_scale = 1.0   # < 1 во время slow-mo (K.O.)
@@ -189,6 +192,7 @@ class Game:
         self.kills = 0
         self.survival_score = 0.0
         self.arena.generate_obstacles(random.randint(2, 4))
+        self._build_stage()
         cx, cy = self.arena.center
         self.player.place(cx, cy, toward=(cx, cy - 1))
         self.player.vel = [0.0, 0.0]
@@ -357,6 +361,7 @@ class Game:
     def start_round(self):
         self.round_no += 1
         self.arena.generate_obstacles(random.randint(2, 4))
+        self._build_stage()
         p1, p2 = self.arena.spawn_points()
         center = self.arena.center
         self.top1.place(*p1, toward=center)
@@ -636,6 +641,31 @@ class Game:
             pygame.draw.line(bg, col, (0, y), (C.SCREEN_W, y))
         return bg
 
+    def _make_vignette(self):
+        """Затемнение по краям кадра — непересекающиеся кольца (кэш)."""
+        w, h = C.SCREEN_W, C.SCREEN_H
+        v = pygame.Surface((w, h), pygame.SRCALPHA)
+        cx, cy = w // 2, h // 2
+        maxd = math.hypot(cx, cy)
+        steps = 10
+        band = int(maxd / steps) + 2
+        for i in range(steps, 0, -1):
+            rad = int(maxd * i / steps)
+            alpha = int(110 * (i / steps) ** 2)
+            pygame.draw.circle(v, (0, 0, 0, alpha), (cx, cy), rad, band)
+        return v
+
+    def _build_stage(self):
+        """Склеить фон + статичную арену + виньетку в одну НЕпрозрачную картинку.
+
+        За кадр потом — один быстрый блит вместо трёх (фон + арена-альфа + виньетка).
+        """
+        stage = self._bg.copy()
+        if self.arena._baked is not None:
+            stage.blit(self.arena._baked, (0, 0))
+        stage.blit(self._vig, (0, 0))
+        self._stage = stage
+
     # --- масштабирование на реальный экран --------------------------------
     def present(self):
         dw, dh = self.display.get_size()
@@ -683,8 +713,9 @@ class Game:
             return
 
         # --- сцена боя: послойно на world ---
-        self.world.blit(self._bg, (0, 0))
-        self.arena.draw(self.world, pulse=self.effects.pulse)
+        # Один быстрый блит готовой статики (фон+арена+виньетка), затем динамика.
+        self.world.blit(self._stage, (0, 0))
+        self.arena.draw_dynamic(self.world, pulse=self.effects.pulse)
         self.effects.draw_smoke(self.world)
         self.effects.draw_waves(self.world)
         for t in self._scene_tops():
@@ -704,7 +735,6 @@ class Game:
         else:
             self.screen.blit(self.world, (int(shx), int(shy)))
 
-        self.arena.draw_vignette(self.screen)
         self.effects.draw_flash(self.screen)
 
         if self.mode == "survival":
