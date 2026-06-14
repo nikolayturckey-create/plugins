@@ -13,9 +13,16 @@ import random
 from . import config as C
 
 
+def _speed_damage_bonus(attacker) -> float:
+    """Множитель урона от текущей скорости атакующего волчка."""
+    excess_speed = max(0.0, attacker.speed - C.SPEED_DAMAGE_BASE)
+    bonus = min(C.SPEED_DAMAGE_MAX, excess_speed / C.SPEED_DAMAGE_SCALE)
+    return 1.0 + bonus * attacker.speed_damage_mult
+
+
 def _apply_hit_damage(attacker, target, impulse: float) -> float:
     """Снять раскрутку с target за удар атакующего. Возвращает урон."""
-    mult = attacker.damage_mult
+    mult = attacker.damage_mult * _speed_damage_bonus(attacker)
     if attacker.boosting > 0:
         mult *= C.SPECIAL_DAMAGE_MULT
     dmg = C.HIT_DAMAGE_K * impulse * mult / target.toughness
@@ -106,10 +113,7 @@ def resolve_wall(top, center, arena_radius) -> bool:
     if vn > 0:
         top.vel[0] -= (1 + top.restitution) * vn * nx
         top.vel[1] -= (1 + top.restitution) * vn * ny
-    top.stamina -= C.WALL_DRAIN
-    if top.stamina <= 0:
-        top.stamina = 0
-        top.alive = False
+    # Стенка только отталкивает волчок и не снимает раскрутку.
     return True
 
 
@@ -130,7 +134,8 @@ def resolve_obstacle(top, obstacle):
     if vn < 0:
         top.vel[0] -= (1 + top.restitution) * vn * nx
         top.vel[1] -= (1 + top.restitution) * vn * ny
-    top.stamina -= random.uniform(C.OBSTACLE_DRAIN_MIN, C.OBSTACLE_DRAIN_MAX)
+    drain = random.uniform(C.OBSTACLE_DRAIN_MIN, C.OBSTACLE_DRAIN_MAX)
+    top.stamina -= drain * top.obstacle_drain_mult
     if top.stamina <= 0:
         top.stamina = 0
         top.alive = False

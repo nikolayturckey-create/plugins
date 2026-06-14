@@ -85,7 +85,7 @@ def test_boost_increases_damage():
     )
 
 
-def test_wall_bounce_reverses_and_drains():
+def test_wall_bounce_reverses_without_drain():
     t = make(weight=5, pos=(C.ARENA_CENTER[0] + C.ARENA_RADIUS + 50,
                             C.ARENA_CENTER[1]), vel=(200, 0))
     before = t.stamina
@@ -93,7 +93,7 @@ def test_wall_bounce_reverses_and_drains():
     assert contacted is True
     # Скорость отразилась внутрь арены (стала отрицательной по X).
     assert t.vel[0] < 0
-    assert t.stamina < before
+    assert t.stamina == before
     # Волчок возвращён внутрь круга.
     dist = math.hypot(t.pos[0] - C.ARENA_CENTER[0], t.pos[1] - C.ARENA_CENTER[1])
     assert dist <= C.ARENA_RADIUS
@@ -118,6 +118,34 @@ def test_stamina_reaches_zero_kills_top():
             break
     assert t.alive is False
     assert t.stamina == 0
+
+
+def test_faster_top_deals_more_damage():
+    slow_target = make(pos=(50, 0), vel=(0, 0))
+    fast_target = make(pos=(50, 0), vel=(0, 0))
+    slow = make(pos=(0, 0), vel=(140, 0))
+    fast = make(pos=(0, 0), vel=(430, 0))
+
+    physics.resolve_top_collision(slow, slow_target)
+    physics.resolve_top_collision(fast, fast_target)
+
+    slow_dmg = slow_target.max_stamina - slow_target.stamina
+    fast_dmg = fast_target.max_stamina - fast_target.stamina
+    assert fast_dmg > slow_dmg
+
+
+def test_blade_shape_gets_bigger_speed_damage_bonus():
+    blade_target = make(pos=(50, 0), vel=(0, 0))
+    sphere_target = make(pos=(50, 0), vel=(0, 0))
+    blade = make(shape="blade", pos=(0, 0), vel=(220, 0))
+    sphere = make(shape="sphere", pos=(0, 0), vel=(220, 0))
+
+    physics.resolve_top_collision(blade, blade_target)
+    physics.resolve_top_collision(sphere, sphere_target)
+
+    blade_dmg = blade_target.max_stamina - blade_target.stamina
+    sphere_dmg = sphere_target.max_stamina - sphere_target.stamina
+    assert blade_dmg > sphere_dmg
 
 
 if __name__ == "__main__":
