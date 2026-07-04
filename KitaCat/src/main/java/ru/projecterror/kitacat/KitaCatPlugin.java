@@ -13,6 +13,7 @@ public final class KitaCatPlugin extends JavaPlugin {
     private FileConfiguration dataConfig;
     private KitaManager kitaManager;
     private KitaMomentManager momentManager;
+    private KitaAntiCheat antiCheat;
 
     @Override
     public void onEnable() {
@@ -21,14 +22,16 @@ public final class KitaCatPlugin extends JavaPlugin {
 
         this.kitaManager = new KitaManager(this);
         this.momentManager = new KitaMomentManager(this, kitaManager);
+        this.antiCheat = new KitaAntiCheat(this);
 
-        KitaCommand command = new KitaCommand(this, kitaManager, momentManager);
+        KitaCommand command = new KitaCommand(this, kitaManager, momentManager, antiCheat);
         if (getCommand("kita") != null) {
             getCommand("kita").setExecutor(command);
             getCommand("kita").setTabCompleter(command);
         }
 
         getServer().getPluginManager().registerEvents(new KitaListener(this, kitaManager), this);
+        getServer().getPluginManager().registerEvents(antiCheat, this);
 
         getServer().getScheduler().runTask(this, kitaManager::restoreOrCreateKita);
         kitaManager.startTasks();
