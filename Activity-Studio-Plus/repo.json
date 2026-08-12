@@ -1,0 +1,9 @@
+{
+  "$meta": {
+    "name": "Activity Studio+ Repository",
+    "description": "Официальная папка репозитория Activity Studio+ для стабильного Revenge."
+  },
+  "com.neterror.activitystudio": {
+    "version": "1.0.0"
+  }
+}
