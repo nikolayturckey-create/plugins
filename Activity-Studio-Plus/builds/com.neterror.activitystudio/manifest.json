@@ -1,7 +1,7 @@
 {
   "id": "com.neterror.activitystudio",
   "spec": 3,
-  "version": "1.0.0",
+  "version": "1.0.1",
   "type": "plugin",
   "display": {
     "name": "Activity Studio+",
@@ -10,6 +10,5 @@
       { "name": "NetError" }
     ]
   },
-  "main": "index.js",
-  "hash": "588eb4bad337b63390a723a35f19c90b76c42780de9b1bbd71b1a28f8d2dac59"
+  "main": "index.js"
 }
