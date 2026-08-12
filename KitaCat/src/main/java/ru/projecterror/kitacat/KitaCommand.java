@@ -15,17 +15,19 @@ public final class KitaCommand implements CommandExecutor, TabCompleter {
     private final KitaCatPlugin plugin;
     private final KitaManager kitaManager;
     private final KitaMomentManager momentManager;
+    private final KitaAntiCheat antiCheat;
 
-    public KitaCommand(KitaCatPlugin plugin, KitaManager kitaManager, KitaMomentManager momentManager) {
+    public KitaCommand(KitaCatPlugin plugin, KitaManager kitaManager, KitaMomentManager momentManager, KitaAntiCheat antiCheat) {
         this.plugin = plugin;
         this.kitaManager = kitaManager;
         this.momentManager = momentManager;
+        this.antiCheat = antiCheat;
     }
 
     @Override
     public boolean onCommand(CommandSender sender, Command command, String label, String[] args) {
         if (args.length == 0) {
-            sender.sendMessage(PREFIX + "Используй: /kita <spawn|remove|tp|sit|follow|reload>");
+            sender.sendMessage(PREFIX + "Используй: /kita <spawn|remove|tp|sit|follow|reload|anticheat>");
             return true;
         }
 
@@ -37,7 +39,8 @@ public final class KitaCommand implements CommandExecutor, TabCompleter {
             case "sit" -> handleSit(sender);
             case "follow" -> handleFollow(sender);
             case "reload" -> handleReload(sender);
-            default -> sender.sendMessage(PREFIX + "Неизвестная команда. Используй: /kita <spawn|remove|tp|sit|follow|reload>");
+            case "anticheat", "ac" -> handleAntiCheat(sender);
+            default -> sender.sendMessage(PREFIX + "Неизвестная команда. Используй: /kita <spawn|remove|tp|sit|follow|reload|anticheat>");
         }
         return true;
     }
@@ -49,7 +52,7 @@ public final class KitaCommand implements CommandExecutor, TabCompleter {
         }
         List<String> options = new ArrayList<>();
         if (hasAdmin(sender)) {
-            options.addAll(List.of("spawn", "remove", "tp", "sit", "follow", "reload"));
+            options.addAll(List.of("spawn", "remove", "tp", "sit", "follow", "reload", "anticheat"));
         } else if (sender instanceof Player player && kitaManager.isOwner(player)) {
             options.addAll(List.of("tp", "sit", "follow"));
         }
@@ -121,6 +124,14 @@ public final class KitaCommand implements CommandExecutor, TabCompleter {
         }
         plugin.reloadPluginConfig();
         sender.sendMessage(PREFIX + "config.yml перезагружен.");
+    }
+
+    private void handleAntiCheat(CommandSender sender) {
+        if (!hasAdmin(sender)) {
+            deny(sender);
+            return;
+        }
+        antiCheat.reportStatus(sender);
     }
 
     private boolean hasAdmin(CommandSender sender) {

@@ -62,3 +62,23 @@ moments:
       emotion: "LONELY"
     - text: "садится рядом и смотрит так, будто ждала тебя весь день."
       emotion: "WAITING"
+
+anticheat:
+  enabled: true
+  decay-per-clean-move: 1
+
+  alerts:
+    cooldown-millis: 2500
+
+  speed:
+    max-blocks-per-second: 8.6
+    sprint-buffer: 1.25
+    potion-buffer: 2.4
+    max-vertical-gain: 0.95
+
+  combat:
+    max-reach: 3.35
+
+  punishments:
+    cancel-hit-violations: 2
+    setback-violations: 4
