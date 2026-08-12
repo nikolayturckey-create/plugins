@@ -1,0 +1,32 @@
+{
+  "format": 1,
+  "name": "Activity Studio+ Repository",
+  "description": "Activity Studio+ for Revenge Next.",
+  "plugins": {
+    "com.neterror.activitystudio": {
+      "name": "Activity Studio+",
+      "description": "Активность и пресеты, прогресс/таймер 1–100, роли и инструменты голосовых каналов.",
+      "author": "NetError",
+      "channels": {
+        "latest": "2.0.0"
+      },
+      "versions": {
+        "2.0.0": {
+          "url": "https://raw.githubusercontent.com/nikolayturckey-create/plugins/main/Activity-Studio-Plus/dist/Activity-Studio-Plus-v2.0.0.zip",
+          "sha256": "39537d9713031587c2765e06f401b1f901d73ceff4b148decf784ee93778b508",
+          "size": 18671,
+          "dependencies": {
+            "revenge.api": {
+              "version": ">=1 <2",
+              "optional": false
+            },
+            "discord": {
+              "version": "*",
+              "optional": false
+            }
+          }
+        }
+      }
+    }
+  }
+}
