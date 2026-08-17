@@ -1,0 +1,65 @@
+name: Build LimboParadise 1.0.5
+
+on:
+  push:
+    branches:
+      - agent/limbo-paradise-wings-fix
+    paths:
+      - ".build/limbo-paradise/**"
+      - ".github/workflows/build-limbo-paradise.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Java 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+          cache: maven
+
+      - name: Restore and verify source bundle
+        shell: bash
+        run: |
+          cat .build/limbo-paradise/part-* | base64 --decode > /tmp/LimboParadise.tar.gz
+          echo "ede3ec585f5e8430c81064cab29ee8c6062ab1c33f4fb18bfb8a989d277972ce  /tmp/LimboParadise.tar.gz" | sha256sum --check
+          tar -xzf /tmp/LimboParadise.tar.gz
+          test -f LimboParadise/pom.xml
+
+      - name: Apply optional source overrides
+        shell: bash
+        run: |
+          if [ -d .build/limbo-paradise/overrides ]; then
+            cp -R .build/limbo-paradise/overrides/. LimboParadise/
+          fi
+
+      - name: Build against Paper API
+        run: mvn -B -U -f LimboParadise/pom.xml clean package
+
+      - name: Verify plugin JAR
+        shell: bash
+        run: |
+          JAR="LimboParadise/target/LimboParadise-1.0.5.jar"
+          test -f "$JAR"
+          jar tf "$JAR" | grep -q '^ru/limbo/paradise/ParadiseWingService.class$'
+          unzip -p "$JAR" plugin.yml | grep -q '^version: 1.0.5$'
+          unzip -p "$JAR" plugin.yml | grep -q '^main: ru.limbo.paradise.ParadisePlugin$'
+          sha256sum "$JAR"
+
+      - name: Upload built plugin
+        uses: actions/upload-artifact@v4
+        with:
+          name: LimboParadise-1.0.5-wings-fix
+          path: LimboParadise/target/LimboParadise-1.0.5.jar
+          if-no-files-found: error
+          retention-days: 7
