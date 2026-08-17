@@ -42,6 +42,10 @@ jobs:
           if [ -d .build/limbo-paradise/overrides ]; then
             cp -R .build/limbo-paradise/overrides/. LimboParadise/
           fi
+          if [ -f .build/limbo-paradise/death-fallback.patch ]; then
+            patch --batch --forward -p1 -d LimboParadise < .build/limbo-paradise/death-fallback.patch
+          fi
+          grep -q 'final List<ItemStack> dropWings' LimboParadise/src/main/java/ru/limbo/paradise/ParadiseWingService.java
 
       - name: Build against Paper API
         run: mvn -B -U -f LimboParadise/pom.xml clean package
