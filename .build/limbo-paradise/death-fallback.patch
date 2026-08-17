@@ -1,0 +1,26 @@
+--- a/src/main/java/ru/limbo/paradise/ParadiseWingService.java
++++ b/src/main/java/ru/limbo/paradise/ParadiseWingService.java
+@@ -248,13 +248,21 @@
+ 
+         // Смерть тоже считается выходом из рая: крылья не должны остаться
+         // лежать на земле и пропасть для игрока после возрождения.
+-        final List<ItemStack> found = removeFromPlayer(player);
++        final List<ItemStack> inventoryWings = removeFromPlayer(player);
++        final List<ItemStack> dropWings = new ArrayList<>();
+         final Iterator<ItemStack> drops = event.getDrops().iterator();
+         while (drops.hasNext()) {
+-            if (isWing(drops.next())) {
++            final ItemStack drop = drops.next();
++            if (isWing(drop)) {
++                dropWings.add(drop.clone());
+                 drops.remove();
+             }
+         }
++
++        // Обычно инвентарь и список дропа содержат один и тот же предмет.
++        // Берём только один источник, чтобы не создать дубликат. Если другой
++        // плагин уже очистил инвентарь, используем сохранённую копию из дропа.
++        final List<ItemStack> found = inventoryWings.isEmpty() ? dropWings : inventoryWings;
+         if (!found.isEmpty()) {
+             this.plugin.players().addStoredWings(player.getUniqueId(), found);
+         }
